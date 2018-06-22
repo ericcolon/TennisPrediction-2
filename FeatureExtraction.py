@@ -10,8 +10,7 @@ class FeatureExtraction(object):
     def __init__(self, database):
 
         self.db = Database(database)
-        self.hdf = pd.HDFStore('storage.h5', mode='r')
-
+        self.hdf = pd.HDFStore('storage.h5',mode = 'r')
         self.matches = self.db.get_matches()
         self.unfiltered_matches = self.db.get_unfiltered_matches()
         self.unfiltered_tournaments = self.db.get_unfiltered_tournaments()
@@ -28,42 +27,41 @@ class FeatureExtraction(object):
         # Create a new column to store the result of the game
         # table["Result"] = "" uncomment this line
         start_time = time.time()
-
+        table["Number_of_games"] = ""
+        table["Number_of_sets"] = ""
         # For each match
         for i in table.index:
             result = table.at[i, 'RESULT_G']
             sets = result.split()
-
+            print(i)
             # These are unfinished matches. We ignore them since they might be noisy datapoints.
             if 'w/o' in sets or 'ret.' in sets or 'def.' in sets or 'n/p' in sets:
                 table = table.drop(i)
 
-        """else:
-             #table.at[i, 'Result'] = str(1)
-             sets_p1 = 0
-                sets_p2 = 0
-                # For each set
-                for s in sets:
-                    games = s.split('-')
+            else:
 
-                    p1_games = int(games[0][:1])
-                    p2_games = int(games[1][:1])
-                    # If player 1 has won the set, increase the number of sets won by one
-                    if p1_games > p2_games:
-                        sets_p1 = sets_p1 + 1
+                total_number_of_games = 0
+                total_number_of_sets = len(sets)
+
+                for match_set in sets:
+                    games = match_set.split('-')
+
+                    p1_games = int(games[0])
+                    if "(" in games[1]:
+                        p2_games = int(games[1][0])
                     else:
-                        sets_p2 = sets_p2 + 1
-                # Result == 1 if Player 1 has won, 0 otherwise.
-                if sets_p1 > sets_p2:
-                    table.at[i, 'Result'] = str(1)
-                else:
-                    table.at[i, 'Result'] = str(0)"""
-        table['Result'] = '1'
+
+                        p2_games = int(games[1])
+                    total_number_of_games = total_number_of_games + p1_games + p2_games
+                table["Number_of_games"] = str(total_number_of_games)
+                table["Number_of_sets"] = str(total_number_of_sets)
+
         print("Time took for creating results for each match--- %s seconds ---" % (time.time() - start_time))
         # Store our updated DataFrame in HDF Storage.
         self.hdf.put(hdf_store_name, table, format='table', data_columns=True)
 
     def create_new_stats(self):
+
         # We will extract new features from stats dataset
 
         start_time = time.time()
@@ -86,8 +84,10 @@ class FeatureExtraction(object):
 
         print("Number of matches with statistics is: {}".format(len(self.stats)))
         dropped_games = 0
-        for i in self.stats.index:
 
+        # add breaking point conversions
+        for i in self.stats.index:
+            print(i)
             oncourt_stats = [int(self.stats.at[i, 'FSOF_1']),
                              int(self.stats.at[i, 'FSOF_2']),
                              int(self.stats.at[i, 'W1SOF_1']),
@@ -175,37 +175,25 @@ class FeatureExtraction(object):
 
         # Order the dataset by Tournament ID and then by Round ID. This will order our matches according to date played.
         self.stats = self.stats.sort_values(['ID_T', 'ID_R'])  # , ascending=[True, False]).sort_index()
-
+        # self.stats = self.stats.reset_index(drop=True)
+        print("V5 of stats dataset includes {} datapoints.".format(len(self.stats)))
         # Store the updated stats dataset in HDF Store
-        self.hdf.put('stats', self.stats, format='table', data_columns=True)
+        self.hdf.put('updated_stats', self.stats, format='table', data_columns=True)
 
     def check_hdfstorage(self):
         # Check everything is stored in their latest version. Their types and lengths
 
         print(self.hdf.keys())
-        print(type(self.hdf['matches']))
-        print(type(self.hdf['stats']))
-        print(type(self.hdf['unfiltered_matches']))
+        # print(type(self.hdf['matches']))
+        print(type(self.hdf['updated_stats']))
+        print(self.hdf['updated_stats'].head())
 
-        print(self.hdf['stats'].shape)
-        print(self.hdf['matches'].shape)
-        print(self.hdf['unfiltered_matches'].shape)
+        # print(type(self.hdf['unfiltered_matches']))
 
-        df = self.hdf.select('matches')
-        for i in df.index:
-            assert (df.at[i, 'Result'] == str(1))
-
-        d = self.hdf.select('unfiltered_matches')
-        for j in d.index:
-            assert (d.at[j, 'Result'] == str(1))
-
-    def return_hdf_storage(self):
-        return self.hdf
-
-    def check_results(self):
-
-        print(self.hdf["unfiltered_matches"].head(40))
-        print(self.hdf["matches"].head(40))
+    def reset_indexes_of_dataframe(self):
+        stats = self.hdf['updated_stats']
+        stats = stats.reset_index(drop=True)
+        self.hdf.put('updated_stats', stats, format='table', data_columns=True)
 
     def calculate_surface_matrix(self, mean_grass, std_grass, mean_clay, std_clay, mean_indoor, std_indoor, mean_hard,
                                  std_hard, number_of_players):
@@ -220,9 +208,10 @@ class FeatureExtraction(object):
 
         matches = self.hdf['unfiltered_matches']  # uncomment this line
 
-        for i in self.players.index:
+        print("We are investigating {} players".format(len(matches.ID1_G.unique())))
 
-            player_id = self.players.at[i, "ID_P"]
+        for id in matches.ID1_G.unique():
+            player_id = id
 
             # get all the matches of a particular player in our dataset
 
@@ -278,6 +267,7 @@ class FeatureExtraction(object):
             p_clay_indoor = p_clay_indoor + ((clay_percentage - mean_clay) * (indoor_percentage * mean_indoor))
             p_hard_grass = p_hard_grass + ((hard_percentage - mean_hard) * (grass_percentage * mean_grass))
             p_grass_indoor = p_grass_indoor + ((grass_percentage - mean_grass) * (indoor_percentage * mean_indoor))
+            p_hard_indoor = p_hard_indoor + ((hard_percentage - mean_hard) * (indoor_percentage * mean_indoor))
 
         clay_hard_matrix_value = float(p_clay_hard / (number_of_players * std_clay * std_hard))
         clay_grass_matrix_value = float(p_clay_grass / (number_of_players * std_grass * std_clay))
@@ -296,9 +286,9 @@ class FeatureExtraction(object):
         print("Investigated total number of {} players".format(number_of_players))
         print("Time took for creating surface matrix--- %s seconds ---" % (time.time() - start_time))
 
-        # For each player --> Create a dictionary that maps surfaces to number of wins
-        # mean percentage of matches won on surface a is calculated as getting percentage of matches won on that surface for every player
-        # put that into np array and calculate mean and std.
+    # For each player --> Create a dictionary that maps surfaces to number of wins
+    # mean percentage of matches won on surface a is calculated as getting percentage of matches won on that surface for every player
+    # put that into np array and calculate mean and std.
 
     def create_surface_matrix(self):
         # FOR EACH SURFACE X = (CLAY,GRASS,INDOOR,HARD) this function returns two things:
@@ -312,18 +302,22 @@ class FeatureExtraction(object):
         clay_percentage = []
         number_of_players = 0
         matches = self.hdf['unfiltered_matches']  # uncomment this line
-
+        print("Number of matches that we will look at: {}.".format(len(matches)))
         index = 0
+        players_with_no_wins = 0
         # Across all players in our database
+        print("We are investigating {} players".format(len(matches.ID1_G.unique())))
 
-        for i in self.players.index:
-            player_id = self.players.at[i, "ID_P"]
+        for id in matches.ID1_G.unique():
+            player_id = id
 
             # get all the matches of a particular player in our dataset
 
             player_wins = matches.loc[(matches.ID1_G == player_id)]
 
             if player_wins.empty:
+                players_with_no_wins = players_with_no_wins + 1
+
                 continue
 
             index = index + 1
@@ -370,19 +364,20 @@ class FeatureExtraction(object):
             indoor_percentage.append(float(indoor_wins / total_wins))
             clay_percentage.append(float(clay_wins / total_wins))
 
-        largest_grass = heapq.nlargest(1, grass_percentage)
-        largest_clay = heapq.nlargest(1, clay_percentage)
-        largest_hard = heapq.nlargest(1, hard_percentage)
-        largest_indoor = heapq.nlargest(1, indoor_percentage)
-
-        mean_grass = float(s.mean(grass_percentage) * 100 / largest_grass)
-        mean_clay = float(s.mean(clay_percentage) * 100 / largest_clay)
-        mean_hard = float(s.mean(hard_percentage) * 100 / largest_hard)
-        mean_indoor = float(s.mean(indoor_percentage) * 100 / largest_indoor)
-        std_grass = s.stdev(grass_percentage)
-        std_clay = s.stdev(clay_percentage)
-        std_hard = s.stdev(hard_percentage)
-        std_indoor = s.stdev(indoor_percentage)
+        largest_grass = heapq.nlargest(1, grass_percentage)[0]
+        largest_clay = heapq.nlargest(1, clay_percentage)[0]
+        largest_hard = heapq.nlargest(1, hard_percentage)[0]
+        largest_indoor = heapq.nlargest(1, indoor_percentage)[0]
+        # m_g = s.mean(grass_percentage)
+        mean_grass = s.mean(grass_percentage) * 100  # / largest_grass
+        mean_clay = s.mean(clay_percentage) * 100  # / largest_clay
+        mean_hard = s.mean(hard_percentage) * 100  # / largest_hard
+        mean_indoor = s.mean(indoor_percentage) * 100  # / largest_indoor
+        std_grass = s.stdev(grass_percentage) * 100
+        std_clay = s.stdev(clay_percentage) * 100
+        std_hard = s.stdev(hard_percentage) * 100
+        std_indoor = s.stdev(indoor_percentage) * 100
+        print("There are {} players with no wins".format(players_with_no_wins))
         print("Investigated total number of {} players".format(number_of_players))
         print(mean_grass)
         print(mean_clay)
@@ -401,26 +396,49 @@ class FeatureExtraction(object):
     def get_unfiltered_matches(self):
         return self.unfiltered_matches
 
-    def get_head_to_head_matches(self):
-        stats = self.hdf['stats']
+    def get_head_to_head_statistics(self):
+        stats = self.hdf['updated_stats']
         matches = self.hdf['unfiltered_matches']
+        start_time = time.time()
+        invalid = 0
 
+        stats["H12H"] = ""
+        stats["H21H"] = ""
         for i in stats.index:
+            print(i)
             player1 = stats.at[i, "ID1"]
             player2 = stats.at[i, "ID2"]
-            head_to_head = matches.loc[np.logical_or(matches['ID1_G'] == player1, matches['ID2_G'] == player2)]
-            print(len(head_to_head))
+            # Head to head games that Player 1 has won
+            head_to_head_1 = matches.loc[np.logical_and(matches['ID1_G'] == player1, matches['ID2_G'] == player2)]
 
-            print("ali")
-            print("stop")
+            # Head to head Games that Player 2 has won
+            head_to_head_2 = matches.loc[np.logical_and(matches['ID1_G'] == player2, matches['ID2_G'] == player1)]
 
-            # Get the tournament id of the player's game
+            player_1_wins = len(head_to_head_1)
+            player_2_wins = len(head_to_head_2)
+            if player_1_wins == 0 and player_2_wins == 0:
+                print(player1)
+                print(player2)
+                invalid = invalid + 1
+                continue
+            h12h = player_1_wins / (player_2_wins + player_1_wins)
+            h21h = player_2_wins / (player_1_wins + player_2_wins)
+            stats.at[i, "H12H"] = str(h12h)
+            stats.at[i, "H21H"] = str(h21h)
 
-            # Running it first time, you have to run create_results() and create new stats one time to create their table in HDF Store.
+        print("Number of invalid matches is {}".format(invalid))
+        print("Time took for creating head to head features for each match took--- %s seconds ---" % (
+                time.time() - start_time))
+
+        self.hdf.put('updated_stats', stats, format='table', data_columns=True)
+
+    # Get the tournament id of the player's game
+
+    # Running it first time, you have to run create_results() and create new stats one time to create their table in HDF Store.
+
 
 feature_extraction = FeatureExtraction("db.sqlite")
 # feature_extraction.check_hdfstorage()
-# feature_extraction.check_results()
 
 """Functions to call one time only
 matches = feature_extraction.get_filtered_matches()
@@ -429,10 +447,16 @@ feature_extraction.create_results(matches, 'matches')
 feature_extraction.create_results(unfiltered_matches, 'unfiltered_matches')
 feature_extraction.check_hdfstorage()"""
 # feature_extraction.create_new_stats() # this takes 244 minutes when run first time or 7 minutes lol
+# matches = feature_extraction.get_filtered_matches()
+# feature_extraction.create_results(matches, 'matches')
+# feature_extraction.create_new_stats() sonra reset indexes, add aces, add court ids  ve get head to heads
+feature_extraction.reset_indexes_of_dataframe()
+feature_extraction.get_head_to_head_statistics()
+feature_extraction.check_hdfstorage()
 
-""" This code is to create and calculate a surface matrix
+""" This code is to create and calculate a surface matrix 
+
 means_and_stds = feature_extraction.create_surface_matrix()
 print(means_and_stds)
 feature_extraction.calculate_surface_matrix(*means_and_stds)
 """
-feature_extraction.get_head_to_head_matches()
