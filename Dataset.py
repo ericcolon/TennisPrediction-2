@@ -1,8 +1,9 @@
 import collections
 from Database import *
-import statistics as s
-from scipy import stats
+import sqlite3
+import numpy as np
 import ast
+from sqlalchemy import create_engine
 
 
 # Helper method to parse strings into integers and floats
@@ -13,11 +14,34 @@ def parse_str(s):
         return
 
 
+def df2sqlite(dataframe, db_name="import.sqlite", tbl_name="import"):
+    conn = sqlite3.connect(db_name)
+    cur = conn.cursor()
+
+    wildcards = ','.join(['?'] * len(dataframe.columns))
+    data = [tuple(x) for x in dataframe.values]
+
+    cur.execute("drop table if exists %s" % tbl_name)
+
+    col_str = '"' + '","'.join(dataframe.columns) + '"'
+    cur.execute("create table %s (%s)" % (tbl_name, col_str))
+
+    cur.executemany("insert into %s values(%s)" % (tbl_name, wildcards), data)
+
+    conn.commit()
+    conn.close()
+
+
+def df2sqlite_v2(dataframe, db_name):
+    disk_engine = create_engine('sqlite:///' + db_name + '.db')
+    dataframe.to_sql(db_name, disk_engine, if_exists='append')
+
+
 class Dataset(object):
 
     def __init__(self, database):
         self.db = Database(database)
-        self.store = pd.HDFStore('storage.h5',mode = 'r')
+        self.store = pd.HDFStore('storage.h5')
         self.X = []
         self.y = []
         self.tournaments = self.db.get_tournaments()
@@ -72,12 +96,12 @@ class Dataset(object):
         court_dict[4][2] = 0.14
         court_dict[4][3] = 0.25
         court_dict[4][4] = 1
-        print((stats.loc[170438]))
-        print(len(stats.loc[stats['court_type'] == ""])) # We have 624 instances where court type is empty
-        print(stats.at[170438, "COMPLETE1"])
-        print(stats.at[170438, "COMPLETE2"])
-        print(type(stats.at[170438, "COMPLETE1"]))
-        print(type(float(stats.at[170438, "COMPLETE1"])))
+        print(len(stats))
+        stats = stats[stats.court_type != ""]
+        print(len(stats))
+        print(stats.isnull().sum())
+
+        # print(engine)
         print("ali")
         print("ali")
         print("stop")
@@ -93,10 +117,9 @@ class Dataset(object):
             # All games that two players have played
             player1_games = stats.loc[np.logical_or(stats.ID1 == player1_id, stats.ID2 == player1_id)]
 
-
             player2_games = stats.loc[np.logical_or(stats.ID1 == player2_id, stats.ID2 == player2_id)]
             curr_tournament = float(stats.at[i, "ID_T"])
-            # current_court_id = int(stats.at[i, "court_type"])
+            current_court_id = int(float(stats.at[i, "court_type"]))
             # Games played earlier than the current tournament we are investigating
             earlier_games_of_p1 = [game for index, game in player1_games.iterrows() if
                                    (float(game['ID_T']) < curr_tournament)]
@@ -134,33 +157,52 @@ class Dataset(object):
                                          (player2_id == game['ID1'] and opponent == game['ID2']) or (
                                                  player2_id == game['ID2'] and opponent == game['ID1'])]
 
-                serveadv_1 = [parse_str(game.SERVEADV1) if game.ID1 == player1_id else parse_str(game.SERVEADV2) for
-                              game in
-                              player1_games_updated]
-                serveadv_2 = [parse_str(game.SERVEADV1) if game.ID1 == player2_id else parse_str(game.SERVEADV2) for
-                              game in
-                              player2_games_updated]
+                # Common opponent matches are taken. The features are calculated with their respective weights (from court surface matrix)
 
-                complete_1 = [parse_str(game.COMPLETE1) if game.ID1 == player1_id else parse_str(game.COMPLETE2) for
-                              game in
-                              player1_games_updated]
-                complete_2 = [parse_str(game.COMPLETE1) if game.ID1 == player2_id else parse_str(game.COMPLETE2) for
-                              game in
-                              player2_games_updated]
+                list_of_serveadv_1 = [parse_str(game.SERVEADV1) * court_dict[current_court_id][
+                    int(parse_str(game.court_type))] if game.ID1 == player1_id
+                                      else parse_str(game.SERVEADV2) * court_dict[current_court_id][
+                    int(parse_str(game.court_type))]
+                                      for game in player1_games_updated]
+                list_of_serveadv_2 = [parse_str(game.SERVEADV1) * court_dict[current_court_id][
+                    int(parse_str(game.court_type))] if game.ID1 == player2_id else parse_str(game.SERVEADV2) *
+                                                                                    court_dict[current_court_id][
+                                                                                        int(parse_str(game.court_type))]
+                                      for game in player2_games_updated]
 
-                w1sp_1 = [parse_str(game.W1SP1) if game.ID1 == player1_id else parse_str(game.W1SP2) for game in
-                          player1_games_updated]
-                w1sp_2 = [parse_str(game.W1SP1) if game.ID1 == player2_id else parse_str(game.W1SP2) for game in
-                          player2_games_updated]
+                list_of_complete_1 = [parse_str(game.COMPLETE1) * court_dict[current_court_id][
+                    int(parse_str(game.court_type))] if game.ID1 == player1_id else parse_str(game.COMPLETE2) *
+                                                                                    court_dict[current_court_id][
+                                                                                        int(parse_str(game.court_type))]
+                                      for game in player1_games_updated]
+                list_of_complete_2 = [parse_str(game.COMPLETE1) if game.ID1 == player2_id else parse_str(game.COMPLETE2)
+                                      for game in player2_games_updated]
 
-                aces_1 = [parse_str(game.ACES_1) if game.ID1 == player1_id else parse_str(game.ACES_2) for game in
-                          player1_games_updated]
+                list_of_w1sp_1 = [parse_str(game.W1SP1) * court_dict[current_court_id][
+                    int(parse_str(game.court_type))] if game.ID1 == player1_id else parse_str(game.W1SP2) *
+                                                                                    court_dict[current_court_id][
+                                                                                        int(parse_str(game.court_type))]
+                                  for game in player1_games_updated]
+                list_of_w1sp_2 = [parse_str(game.W1SP1) * court_dict[current_court_id][
+                    int(parse_str(game.court_type))] if game.ID1 == player2_id else parse_str(game.W1SP2) *
+                                                                                    court_dict[current_court_id][
+                                                                                        int(parse_str(game.court_type))]
+                                  for game in player2_games_updated]
 
-                aces_2 = [parse_str(game.ACES_1) if game.ID1 == player2_id else parse_str(game.ACES_2) for game in
-                          player2_games_updated]
+                list_of_aces_1 = [parse_str(game.ACES_1) * court_dict[current_court_id][
+                    int(parse_str(game.court_type))] if game.ID1 == player1_id else parse_str(game.ACES_2) *
+                                                                                    court_dict[current_court_id][
+                                                                                        int(parse_str(game.court_type))]
+                                  for game in player1_games_updated]
 
-               # print("ali")
-               # print("stop")
+                list_of_aces_2 = [parse_str(game.ACES_1) * court_dict[current_court_id][
+                    int(parse_str(game.court_type))] if game.ID1 == player2_id else parse_str(game.ACES_2) *
+                                                                                    court_dict[current_court_id][
+                                                                                        int(parse_str(game.court_type))]
+                                  for game in player2_games_updated]
+
+                print("ali")
+                print("stop")
 
         print(common_more_than_5)
         print(zero_common_opponents)
@@ -176,4 +218,5 @@ class Dataset(object):
 
 DT = Dataset("db.sqlite")
 # DT.add_court_types()  # This should be moved to feature extraction
+# Code to convert a panda dataframe into sqlite 3 database:  # df2sqlite_v2(DT.store['updated_stats'],stats)
 DT.create_feature_set()

@@ -1,7 +1,6 @@
 import sqlite3
 import pandas as pd
 import time
-import numpy as np
 
 
 class Database(object):
@@ -9,7 +8,7 @@ class Database(object):
         self.conn = sqlite3.connect(database)
         start_time = time.time()
 
-        cur = self.conn.cursor()
+
         self.court_dict = {}
         self.create_court_dict()
 
