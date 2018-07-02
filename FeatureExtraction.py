@@ -21,6 +21,19 @@ class FeatureExtraction(object):
         self.X = []
         self.y = []
 
+
+
+
+    def check_hdfstorage(self):
+        # Check everything is stored in their latest version. Their types and lengths
+
+        print(self.hdf.keys())
+        # print(type(self.hdf['matches']))
+        print(type(self.hdf['updated_stats']))
+        print(self.hdf['updated_stats'].head())
+
+        # print(type(self.hdf['unfiltered_matches']))
+
     def create_results(self, table, hdf_store_name):
         # Create results for each game (can extract other features like (number of games played vs)
 
@@ -180,15 +193,43 @@ class FeatureExtraction(object):
         # Store the updated stats dataset in HDF Store
         self.hdf.put('updated_stats', self.stats, format='table', data_columns=True)
 
-    def check_hdfstorage(self):
-        # Check everything is stored in their latest version. Their types and lengths
 
-        print(self.hdf.keys())
-        # print(type(self.hdf['matches']))
-        print(type(self.hdf['updated_stats']))
-        print(self.hdf['updated_stats'].head())
+    def get_head_to_head_statistics(self):
+        stats = self.hdf['updated_stats']
+        matches = self.hdf['unfiltered_matches']
+        start_time = time.time()
+        invalid = 0
 
-        # print(type(self.hdf['unfiltered_matches']))
+        stats["H12H"] = ""
+        stats["H21H"] = ""
+        for i in stats.index:
+            print(i)
+            player1 = stats.at[i, "ID1"]
+            player2 = stats.at[i, "ID2"]
+            # Head to head games that Player 1 has won
+            head_to_head_1 = matches.loc[np.logical_and(matches['ID1_G'] == player1, matches['ID2_G'] == player2)]
+
+            # Head to head Games that Player 2 has won
+            head_to_head_2 = matches.loc[np.logical_and(matches['ID1_G'] == player2, matches['ID2_G'] == player1)]
+
+            player_1_wins = len(head_to_head_1)
+            player_2_wins = len(head_to_head_2)
+            if player_1_wins == 0 and player_2_wins == 0:
+                print(player1)
+                print(player2)
+                invalid = invalid + 1
+                continue
+            h12h = player_1_wins / (player_2_wins + player_1_wins)
+            h21h = player_2_wins / (player_1_wins + player_2_wins)
+            stats.at[i, "H12H"] = str(h12h)
+            stats.at[i, "H21H"] = str(h21h)
+
+        print("Number of invalid matches is {}".format(invalid))
+        print("Time took for creating head to head features for each match took--- %s seconds ---" % (
+                time.time() - start_time))
+
+        self.hdf.put('updated_stats', stats, format='table', data_columns=True)
+
 
     def reset_indexes_of_dataframe(self):
         stats = self.hdf['updated_stats']
@@ -395,42 +436,6 @@ class FeatureExtraction(object):
 
     def get_unfiltered_matches(self):
         return self.unfiltered_matches
-
-    def get_head_to_head_statistics(self):
-        stats = self.hdf['updated_stats']
-        matches = self.hdf['unfiltered_matches']
-        start_time = time.time()
-        invalid = 0
-
-        stats["H12H"] = ""
-        stats["H21H"] = ""
-        for i in stats.index:
-            print(i)
-            player1 = stats.at[i, "ID1"]
-            player2 = stats.at[i, "ID2"]
-            # Head to head games that Player 1 has won
-            head_to_head_1 = matches.loc[np.logical_and(matches['ID1_G'] == player1, matches['ID2_G'] == player2)]
-
-            # Head to head Games that Player 2 has won
-            head_to_head_2 = matches.loc[np.logical_and(matches['ID1_G'] == player2, matches['ID2_G'] == player1)]
-
-            player_1_wins = len(head_to_head_1)
-            player_2_wins = len(head_to_head_2)
-            if player_1_wins == 0 and player_2_wins == 0:
-                print(player1)
-                print(player2)
-                invalid = invalid + 1
-                continue
-            h12h = player_1_wins / (player_2_wins + player_1_wins)
-            h21h = player_2_wins / (player_1_wins + player_2_wins)
-            stats.at[i, "H12H"] = str(h12h)
-            stats.at[i, "H21H"] = str(h21h)
-
-        print("Number of invalid matches is {}".format(invalid))
-        print("Time took for creating head to head features for each match took--- %s seconds ---" % (
-                time.time() - start_time))
-
-        self.hdf.put('updated_stats', stats, format='table', data_columns=True)
 
     # Get the tournament id of the player's game
 
