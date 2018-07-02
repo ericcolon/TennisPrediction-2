@@ -3,6 +3,7 @@ import time
 import pandas as pd
 import statistics as s
 import heapq
+import numpy as np
 
 
 class FeatureExtraction(object):
@@ -20,9 +21,6 @@ class FeatureExtraction(object):
         self.player_surface_dict = {}
         self.X = []
         self.y = []
-
-
-
 
     def check_hdfstorage(self):
         # Check everything is stored in their latest version. Their types and lengths
@@ -193,7 +191,6 @@ class FeatureExtraction(object):
         # Store the updated stats dataset in HDF Store
         self.hdf.put('updated_stats', self.stats, format='table', data_columns=True)
 
-
     def get_head_to_head_statistics(self):
         stats = self.hdf['updated_stats']
         matches = self.hdf['unfiltered_matches']
@@ -229,7 +226,6 @@ class FeatureExtraction(object):
                 time.time() - start_time))
 
         self.hdf.put('updated_stats', stats, format='table', data_columns=True)
-
 
     def reset_indexes_of_dataframe(self):
         stats = self.hdf['updated_stats']
