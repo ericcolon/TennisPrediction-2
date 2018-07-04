@@ -1,21 +1,24 @@
 import collections
-from Database import *
-import sqlite3
-import numpy as np
-import ast
-from sqlalchemy import create_engine
 import pickle
-from google.cloud import storage
+import sqlite3
 import statistics as s
 from random import random
 
+import numpy as np
+from google.cloud import storage
+from sklearn import svm
+from sklearn.externals import joblib
+from sqlalchemy import create_engine
 
-# Helper method to parse strings into integers and floats
-def parse_str(s):
-    try:
-        return ast.literal_eval(str(s))
-    except:
-        return
+from Database import *
+
+
+# Helper method to standardize features
+def normalize(d):
+    # d is a (n x dimension) np array
+    d -= np.min(d, axis=0)
+    d /= np.ptp(d, axis=0)
+    return d
 
 
 # Methods to convert pandas dataframe into sqlite3 database
@@ -76,15 +79,27 @@ def google_cloud_upload():
 class Dataset(object):
 
     def __init__(self, database):
-        self.db = Database(database)
+        # self.db = Database(database)
         # self.store = pd.HDFStore('storage.h5')
 
         self.X = []
         self.y = []
-        self.tournaments = self.db.get_tournaments()
-        self.matches = self.db.get_matches()
+        # self.tournaments = self.db.get_tournaments()
+        # self.matches = self.db.get_matches()
+        # Create a new pandas dataframe from the sqlite3 database we created
+        conn = sqlite3.connect('stats.db')
+        dataset = pd.read_sql_query('SELECT * FROM stats', conn)  # atp players list
 
-    # run this first to add court types to updated_stats dataset
+        # This changes all values to numeric if sqlite3 conversion gave a string
+        dataset = dataset.apply(pd.to_numeric,
+                                errors='coerce')
+
+        dataset.dropna(subset=['SERVEADV1'], inplace=True)  # drop invalid stats (63)
+
+        dataset = dataset.reset_index(drop=True)  # reset indexes if any more rows are dropped
+        self.dataset = dataset
+        # run this first to add court types to updated_stats dataset
+
     def add_court_types(self):
         stats = self.store['updated_stats']  # uncomment this line
         start_time = time.time()
@@ -163,32 +178,22 @@ class Dataset(object):
         #  show_deadline(conn, list(stats))
 
         # Create a new pandas dataframe from the sqlite3 database we created
-        conn = sqlite3.connect('stats.db')
-        dataset = pd.read_sql_query('SELECT * FROM stats', conn)  # atp players list
 
-        # This changes all values to numeric if sqlite3 conversion gave a string
-        dataset = dataset.apply(pd.to_numeric,
-                                errors='coerce')
-        print(len(dataset))
-        print(dataset.isnull().sum(axis=0))
-        print(dataset.info())
-        print(dataset.dtypes)
-        dataset.dropna(subset=['SERVEADV1'], inplace=True)  # drop invalid stats (63)
-        print(len(dataset))
-        dataset = dataset.reset_index(drop=True)  # reset indexes if any more rows are dropped
-        for i in reversed(dataset.index):
+        for i in reversed(self.dataset.index):
 
             print(i)
-            player1_id = dataset.at[i, "ID1"]
-            player2_id = dataset.at[i, "ID2"]
+            player1_id = self.dataset.at[i, "ID1"]
+            player2_id = self.dataset.at[i, "ID2"]
 
             # All games that two players have played
-            player1_games = dataset.loc[np.logical_or(dataset.ID1 == player1_id, dataset.ID2 == player1_id)]
+            player1_games = self.dataset.loc[
+                np.logical_or(self.dataset.ID1 == player1_id, self.dataset.ID2 == player1_id)]
 
-            player2_games = dataset.loc[np.logical_or(dataset.ID1 == player2_id, dataset.ID2 == player2_id)]
+            player2_games = self.dataset.loc[
+                np.logical_or(self.dataset.ID1 == player2_id, self.dataset.ID2 == player2_id)]
 
-            curr_tournament = dataset.at[i, "ID_T"]
-            current_court_id = dataset.at[i, "court_type"]
+            curr_tournament = self.dataset.at[i, "ID_T"]
+            current_court_id = self.dataset.at[i, "court_type"]
 
             #  print(type(player1_games))
 
@@ -244,46 +249,36 @@ class Dataset(object):
                 # TO DO -- ACES should be divided to their per game average..
 
                 list_of_serveadv_1 = [game.SERVEADV1 * court_dict[current_court_id][
-                    game.court_type] if game.ID1 == player1_id
-                                      else game.SERVEADV2 * court_dict[current_court_id][
-                    game.court_type]
-                                      for game in player1_games_updated]
+                    game.court_type] if game.ID1 == player1_id else game.SERVEADV2 * court_dict[current_court_id][
+                    game.court_type] for game in player1_games_updated]
+
                 list_of_serveadv_2 = [game.SERVEADV1 * court_dict[current_court_id][
-                    game.court_type] if game.ID1 == player2_id else game.SERVEADV2 *
-                                                                    court_dict[current_court_id][
-                                                                        game.court_type]
-                                      for game in player2_games_updated]
+                    game.court_type] if game.ID1 == player2_id else game.SERVEADV2 * court_dict[current_court_id][
+                    game.court_type] for game in player2_games_updated]
 
                 list_of_complete_1 = [game.COMPLETE1 * court_dict[current_court_id][
-                    game.court_type] if game.ID1 == player1_id else game.COMPLETE2 *
-                                                                    court_dict[current_court_id][
-                                                                        game.court_type]
-                                      for game in player1_games_updated]
-                list_of_complete_2 = [game.COMPLETE1 if game.ID1 == player2_id else game.COMPLETE2
-                                      for game in player2_games_updated]
+                    game.court_type] if game.ID1 == player1_id else game.COMPLETE2 * court_dict[current_court_id][
+                    game.court_type] for game in player1_games_updated]
+
+                list_of_complete_2 = [game.COMPLETE1 * court_dict[current_court_id][
+                    game.court_type] if game.ID1 == player2_id else game.COMPLETE2 * court_dict[current_court_id][
+                    game.court_type] for game in player2_games_updated]
 
                 list_of_w1sp_1 = [game.W1SP1 * court_dict[current_court_id][
-                    game.court_type] if game.ID1 == player1_id else game.W1SP2 *
-                                                                    court_dict[current_court_id][
-                                                                        game.court_type]
-                                  for game in player1_games_updated]
+                    game.court_type] if game.ID1 == player1_id else game.W1SP2 * court_dict[current_court_id][
+                    game.court_type] for game in player1_games_updated]
+
                 list_of_w1sp_2 = [game.W1SP1 * court_dict[current_court_id][
-                    game.court_type] if game.ID1 == player2_id else game.W1SP2 *
-                                                                    court_dict[current_court_id][
-                                                                        game.court_type]
-                                  for game in player2_games_updated]
+                    game.court_type] if game.ID1 == player2_id else game.W1SP2 * court_dict[current_court_id][
+                    game.court_type] for game in player2_games_updated]
 
                 list_of_aces_1 = [(game.ACES_1) * court_dict[current_court_id][
-                    ((game.court_type))] if game.ID1 == player1_id else (game.ACES_2) *
-                                                                        court_dict[current_court_id][
-                                                                            ((game.court_type))]
-                                  for game in player1_games_updated]
+                    ((game.court_type))] if game.ID1 == player1_id else (game.ACES_2) * court_dict[current_court_id][
+                    game.court_type] for game in player1_games_updated]
 
                 list_of_aces_2 = [game.ACES_1 * court_dict[current_court_id][
-                    game.court_type] if game.ID1 == player2_id else game.ACES_2 *
-                                                                    court_dict[current_court_id][
-                                                                        game.court_type]
-                                  for game in player2_games_updated]
+                    game.court_type] if game.ID1 == player2_id else game.ACES_2 * court_dict[current_court_id][
+                    game.court_type] for game in player2_games_updated]
 
                 serveadv_1 = s.mean(list_of_serveadv_1)
                 serveadv_2 = s.mean(list_of_serveadv_2)
@@ -322,17 +317,183 @@ class Dataset(object):
         return [X, y]
 
     def train_model(self):
-        pass
+        start_time = time.time()
 
-    def test_model(self):
-        pass
+        pickle_in = open("data.txt", "rb")
+        X = np.asarray(pickle.load(pickle_in))
+        pickle_in_2 = open("label.txt", "rb")
+        Y = np.asarray(pickle.load(pickle_in_2))
+
+        print(X.shape)
+        print(Y.shape)
+
+        print(np.std(X, axis=0))
+        print(np.mean(X, axis=0))
+
+        # Split into train and test datasets. Until around tournamnet id 11364 is training
+        train_X = X[:69685]
+        test_X = X[69685:]
+        train_Y = Y[:69685]
+        test_Y = Y[69685:]
+
+        clf = svm.NuSVC()
+        clf.fit(train_X, train_Y)
+        print("Training accuracy for Non-linear SVM model is: {}".format(clf.score(train_X, train_Y)))
+        print("Testing accuracy for Non-linear SVM model is: {}".format(clf.score(test_X, test_Y)))
+
+        print("Time took for creating and testing the model took--- %s seconds ---" % (time.time() - start_time))
+        # now you can save it the model into a file
+        joblib.dump(clf, 'svm_model.pkl')
+
+    def make_predictions(self, player1_id, player2_id, current_court_id, curr_tournament):
+        clf = joblib.load('svm_model.pkl')
+
+        court_dict = collections.defaultdict(dict)
+        court_dict[1][1] = float(1)  # 1 is Hardcourt
+        court_dict[1][2] = 0.28
+        court_dict[1][3] = 0.35
+        court_dict[1][4] = 0.24
+        court_dict[1][5] = 0.24
+        court_dict[1][6] = float(1)
+
+        court_dict[2][1] = 0.28  # 2 is Clay
+        court_dict[2][2] = float(1)
+        court_dict[2][3] = 0.31
+        court_dict[2][4] = 0.14
+        court_dict[2][5] = 0.14
+        court_dict[2][6] = 0.28
+        court_dict[3][1] = 0.35  # 3 is Indoor
+        court_dict[3][2] = 0.31
+        court_dict[3][3] = float(1)
+        court_dict[3][4] = 0.25
+        court_dict[3][5] = 0.25
+        court_dict[3][6] = 0.35
+        court_dict[4][1] = 0.24  # 4 is carpet
+        court_dict[4][2] = 0.14
+        court_dict[4][3] = 0.25
+        court_dict[4][4] = float(1)
+        court_dict[4][5] = float(1)
+        court_dict[4][6] = 0.24
+        court_dict[5][1] = 0.24  # 5 is Grass
+        court_dict[5][2] = 0.14
+        court_dict[5][3] = 0.25
+        court_dict[5][4] = float(1)
+        court_dict[5][5] = float(1)
+        court_dict[5][6] = 0.24
+        court_dict[6][1] = float(1)  # 1 is Acyrlic
+        court_dict[6][2] = 0.28
+        court_dict[6][3] = 0.35
+        court_dict[6][4] = 0.24
+        court_dict[6][5] = 0.24
+        court_dict[6][6] = float(1)
+
+        # All games that two players have played
+        player1_games = self.dataset.loc[np.logical_or(self.dataset.ID1 == player1_id, self.dataset.ID2 == player1_id)]
+
+        player2_games = self.dataset.loc[np.logical_or(self.dataset.ID1 == player2_id, self.dataset.ID2 == player2_id)]
+
+        # This value should be higher than anything else curr_tournament = dataset.at[i, "ID_T"]
+        earlier_games_of_p1 = [game for game in player1_games.itertuples() if
+                               game.ID_T < curr_tournament]
+
+        earlier_games_of_p2 = [game for game in player2_games.itertuples() if
+                               game.ID_T < curr_tournament]
+
+        opponents_of_p1 = [
+            games.ID2 if (player1_id == games.ID1) else
+            games.ID1 for games in earlier_games_of_p1]
+
+        opponents_of_p2 = [
+            games.ID2 if (player2_id == games.ID1) else
+            games.ID1 for games in earlier_games_of_p2]
+
+        sa = set(opponents_of_p1)
+        sb = set(opponents_of_p2)
+
+        # Find common opponents that these players have faced
+        common_opponents = sa.intersection(sb)
+
+        if len(common_opponents) > 5:
+            print("These players have more than 5 common opponents ")
+
+            player1_games_updated = [game for opponent in common_opponents for game in earlier_games_of_p1 if
+                                     (player1_id == game.ID1 and opponent == game.ID2) or (
+                                             player1_id == game.ID2 and opponent == game.ID1)]
+            player2_games_updated = [game for opponent in common_opponents for game in earlier_games_of_p2 if
+                                     (player2_id == game.ID1 and opponent == game.ID2) or (
+                                             player2_id == game.ID2 and opponent == game.ID1)]
+
+            list_of_serveadv_1 = [game.SERVEADV1 * court_dict[current_court_id][
+                game.court_type] if game.ID1 == player1_id else game.SERVEADV2 * court_dict[current_court_id][
+                game.court_type] for game in player1_games_updated]
+            list_of_serveadv_2 = [game.SERVEADV1 * court_dict[current_court_id][
+                game.court_type] if game.ID1 == player2_id else game.SERVEADV2 * court_dict[current_court_id][
+                game.court_type] for game in player2_games_updated]
+
+            list_of_complete_1 = [game.COMPLETE1 * court_dict[current_court_id][
+                game.court_type] if game.ID1 == player1_id else game.COMPLETE2 * court_dict[current_court_id][
+                game.court_type] for game in player1_games_updated]
+
+            list_of_complete_2 = [game.COMPLETE1 * court_dict[current_court_id][
+                game.court_type] if game.ID1 == player2_id else game.COMPLETE2 * court_dict[current_court_id][
+                game.court_type] for game in player2_games_updated]
+
+            list_of_w1sp_1 = [game.W1SP1 * court_dict[current_court_id][
+                game.court_type] if game.ID1 == player1_id else game.W1SP2 * court_dict[current_court_id][
+                game.court_type] for game in player1_games_updated]
+
+            list_of_w1sp_2 = [game.W1SP1 * court_dict[current_court_id][
+                game.court_type] if game.ID1 == player2_id else game.W1SP2 * court_dict[current_court_id][
+                game.court_type] for game in player2_games_updated]
+
+            list_of_aces_1 = [game.ACES_1 * court_dict[current_court_id][
+                game.court_type] if game.ID1 == player1_id else (game.ACES_2) * court_dict[current_court_id][
+                game.court_type] for game in player1_games_updated]
+
+            list_of_aces_2 = [game.ACES_1 * court_dict[current_court_id][
+                game.court_type] if game.ID1 == player2_id else game.ACES_2 * court_dict[current_court_id][
+                game.court_type] for game in player2_games_updated]
+
+            serveadv_1 = s.mean(list_of_serveadv_1)
+            serveadv_2 = s.mean(list_of_serveadv_2)
+            complete_1 = s.mean(list_of_complete_1)
+            complete_2 = s.mean(list_of_complete_2)
+            w1sp_1 = s.mean(list_of_w1sp_1)
+            w1sp_2 = s.mean(list_of_w1sp_2)
+            aces_1 = s.mean(list_of_aces_1)
+            aces_2 = s.mean(list_of_aces_2)
+            feature = np.array(
+                [serveadv_1 - serveadv_2, complete_1 - complete_2, w1sp_1 - w1sp_2, aces_1 - aces_2])
+
+            print("The prediction between player {} and player {} is {}".format(player1_id, player2_id, clf.predict(
+                np.array(feature).reshape(1, -1))))
+
+        # feature_rev = np.array(
+        #      [serveadv_2 - serveadv_1, complete_2 - complete_1, w1sp_2 - w1sp_1, aces_2 - aces_1])
+        #  print(clf.predict(np.array(feature_rev).reshape(1, -1)))
+
+        else:
+            print("These players do not have enough common opponents to make predictions")
+            return
+
+        # DT.add_court_types()  # This should be moved to feature extraction
 
 
-DT = Dataset("db.sqlite")
-# DT.add_court_types()  # This should be moved to feature extraction
 # Code to convert a panda dataframe into sqlite 3 database:  # df2sqlite_v2(DT.store['updated_stats'],stats)
-data_label = DT.create_feature_set()
-print(len(data_label[0]))
-print(len(data_label[1]))
+DT = Dataset("db.sqlite")
+#data_label = DT.create_feature_set()
+#print(len(data_label[0]))
+#print(len(data_label[1]))
 
-# google_cloud_upload()
+
+# To create an SVM Model
+# DT.train_model()
+
+
+# To make predictions on a particular round
+p1_list = [19, 6101, 7459, 5837, 4061, 11704, 20193, 7806, 30470, 2123, 4454, 18094, 678, 655, 10995, 961,6465]
+p2_list = [5127, 9471, 791, 9840, 1266, 9861, 22429, 12661, 26923, 5917, 1092, 27482, 685, 14177, 10828, 22087,468]
+
+for p1, p2 in zip(p1_list, p2_list):
+    DT.make_predictions(p1, p2, 5, 15300)
+

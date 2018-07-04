@@ -4,6 +4,12 @@ import pandas as pd
 import statistics as s
 import heapq
 import numpy as np
+from sqlalchemy import create_engine
+
+
+def df2sqlite_v2(dataframe, db_name):
+    disk_engine = create_engine('sqlite:///' + db_name + '.db')
+    dataframe.to_sql(db_name, disk_engine, if_exists='append')
 
 
 class FeatureExtraction(object):
@@ -11,7 +17,7 @@ class FeatureExtraction(object):
     def __init__(self, database):
 
         self.db = Database(database)
-        self.hdf = pd.HDFStore('storage.h5')
+        self.hdf = pd.HDFStore('storage.h5', mode='r')
         self.matches = self.db.get_matches()
         self.unfiltered_matches = self.db.get_unfiltered_matches()
         self.unfiltered_tournaments = self.db.get_unfiltered_tournaments()
@@ -187,12 +193,13 @@ class FeatureExtraction(object):
         # Order the dataset by Tournament ID and then by Round ID. This will order our matches according to date played.
         self.stats = self.stats.sort_values(['ID_T', 'ID_R'])  # , ascending=[True, False]).sort_index()
         # self.stats = self.stats.reset_index(drop=True)
-        print("V5 of stats dataset includes {} datapoints.".format(len(self.stats)))
+        stats_final = self.stats.reset_index(drop=True)
+        print("V5 of stats dataset includes {} datapoints.".format(len(stats_final)))
         # Store the updated stats dataset in HDF Store
-        self.hdf.put('updated_stats', self.stats, format='table', data_columns=True)
+        # self.hdf.put('updated_stats', self.stats, format='table', data_columns=True)
+        return stats_final
 
-    def get_head_to_head_statistics(self):
-        stats = self.hdf['updated_stats']
+    def get_head_to_head_statistics(self, stats):
         matches = self.hdf['unfiltered_matches']
         start_time = time.time()
         invalid = 0
@@ -225,7 +232,37 @@ class FeatureExtraction(object):
         print("Time took for creating head to head features for each match took--- %s seconds ---" % (
                 time.time() - start_time))
 
-        self.hdf.put('updated_stats', stats, format='table', data_columns=True)
+        # self.hdf.put('updated_stats', stats, format='table', data_columns=True)
+        return stats
+
+        # run this first to add court types to updated_stats dataset
+
+    def add_court_types(self, stats):
+
+        start_time = time.time()
+
+        stats["court_type"] = ""
+        court_id_none = 0
+        for i in (stats.index):
+            print(i)
+            tournament_id = stats.at[i, "ID_T"]
+            tournament = self.tournaments.loc[self.tournaments['ID_T'] == tournament_id]  # Find the tournament
+            if tournament.empty:
+                court_id_none = court_id_none + 1
+                continue
+            else:
+                court_id = float(tournament['ID_C_T'])  # casting it as a float
+                print(court_id)
+                stats.at[i, 'court_type'] = str(court_id)
+
+        print(court_id_none)
+        stats_final = stats.reset_index(drop=True)  # reset indexes if any more rows are dropped
+
+        print("ali")
+        print("stop")
+        print("Time took for adding court ids to stats took--- %s seconds ---" % (time.time() - start_time))
+
+        return stats_final
 
     def reset_indexes_of_dataframe(self):
         stats = self.hdf['updated_stats']
@@ -433,11 +470,6 @@ class FeatureExtraction(object):
     def get_unfiltered_matches(self):
         return self.unfiltered_matches
 
-    # Get the tournament id of the player's game
-
-    # Running it first time, you have to run create_results() and create new stats one time to create their table in HDF Store.
-
-
 feature_extraction = FeatureExtraction("db.sqlite")
 # feature_extraction.check_hdfstorage()
 
@@ -447,13 +479,17 @@ unfiltered_matches = feature_extraction.get_unfiltered_matches()
 feature_extraction.create_results(matches, 'matches')
 feature_extraction.create_results(unfiltered_matches, 'unfiltered_matches')
 feature_extraction.check_hdfstorage()"""
-# feature_extraction.create_new_stats() # this takes 244 minutes when run first time or 7 minutes lol
-# matches = feature_extraction.get_filtered_matches()
-# feature_extraction.create_results(matches, 'matches')
-# feature_extraction.create_new_stats() sonra reset indexes, add aces, add court ids  ve get head to heads
-feature_extraction.reset_indexes_of_dataframe()
-feature_extraction.get_head_to_head_statistics()
-feature_extraction.check_hdfstorage()
+
+new_stats = feature_extraction.create_new_stats()
+print(len(new_stats.columns))
+new_stats_v2 = feature_extraction.get_head_to_head_statistics(new_stats)
+print(len(new_stats_v2.columns))
+new_stats_v3 = feature_extraction.add_court_types(new_stats_v2)
+print(len(new_stats_v3))
+print(len(new_stats_v3.columns))
+
+# Code to convert a panda dataframe into sqlite 3 database:
+df2sqlite_v2(new_stats_v3, 'updated_stats')
 
 """ This code is to create and calculate a surface matrix 
 
