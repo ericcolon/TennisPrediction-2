@@ -1,17 +1,16 @@
 import collections
 import pickle
-import sqlite3
 import statistics as s
 from random import random
-from sklearn.metrics import classification_report
-from sklearn.model_selection import train_test_split
-from yellowbrick.classifier import ClassificationReport
+
 import numpy as np
-from google.cloud import storage
+from sklearn import preprocessing
 from sklearn import svm
 from sklearn.externals import joblib
+from sklearn.model_selection import train_test_split
 from sqlalchemy import create_engine
-from sklearn import preprocessing
+from yellowbrick.classifier import ClassificationReport
+
 from Database import *
 
 
@@ -52,12 +51,13 @@ def show_deadline(conn, column_list):
     return
 
 
+"""
 def google_cloud_upload():
-    storage_client = storage.Client.from_service_account_json(
-        'TennisPrediction-457d9e25f643.json')
-    buckets = list(storage_client.list_buckets())
-    print(buckets)
-    """bucket_name = 'tennismodelbucket'
+   storage_client = storage.Client.from_service_account_json(
+       'TennisPrediction-457d9e25f643.json')
+   buckets = list(storage_client.list_buckets())
+   print(buckets)
+   Bucket_name = 'tennismodelbucket'
     bucket = storage_client.get_bucket(bucket_name)
     source_file_name = 'Local file to upload, for example ./file.txt'
     blob = bucket.blob(os.path.basename("stats.db"))
@@ -72,56 +72,28 @@ def google_cloud_upload():
 
 class Dataset(object):
 
-    def __init__(self, database):
-        # self.db = Database(database)
-        # self.store = pd.HDFStore('storage.h5')
+    def __init__(self, updated_stats):
 
-        self.X = []
-        self.y = []
-        # self.tournaments = self.db.get_tournaments()
-        # self.matches = self.db.get_matches()
         # Create a new pandas dataframe from the sqlite3 database we created
-        conn = sqlite3.connect('stats.db')
-        dataset = pd.read_sql_query('SELECT * FROM stats', conn)  # atp players list
-        # print(dataset.info())
-        print(len(dataset))
+        conn = sqlite3.connect(updated_stats + '.db')
+        dataset = pd.read_sql_query('SELECT * FROM updated_stats', conn)
         # This changes all values to numeric if sqlite3 conversion gave a string
+        print(len(dataset))
+
         dataset = dataset.apply(pd.to_numeric,
                                 errors='coerce')
 
-        # print(dataset.info())
+        print(dataset.info())
+        print(dataset.isna().sum())
+        dataset.dropna(subset=['SERVEADV1'], inplace=True)  # drop invalid stats (22)
+        dataset.dropna(subset=['court_type'], inplace=True)  # drop invalid stats (616)
+        dataset.dropna(subset=['H21H'], inplace=True)  # drop invalid stats (7)
 
-        dataset.dropna(subset=['SERVEADV1'], inplace=True)  # drop invalid stats (63)
         print(len(dataset))
 
         dataset = dataset.reset_index(drop=True)  # reset indexes if any more rows are dropped
         self.dataset = dataset
         # run this first to add court types to updated_stats dataset
-
-    def add_court_types(self):
-        stats = self.store['updated_stats']  # uncomment this line
-        start_time = time.time()
-        del stats['court_type']
-        stats["court_type"] = ""
-        court_id_none = 0
-        for i in (stats.index):
-            print(i)
-            tournament_id = stats.at[i, "ID_T"]
-            tournament = self.tournaments.loc[self.tournaments['ID_T'] == tournament_id]  # Find the tournament
-            if tournament.empty:
-                court_id_none = court_id_none + 1
-                continue
-            else:
-                court_id = float(tournament['ID_C_T'])  # casting it as a float
-                print(court_id)
-                stats.at[i, 'court_type'] = str(court_id)
-
-        print(court_id_none)
-        print("ali")
-        print("stop")
-        print("Time took for adding court ids to stats took--- %s seconds ---" % (time.time() - start_time))
-
-        self.store.put('updated_stats', stats, format='table', data_columns=True)
 
     def create_feature_set(self, feature_set_name, label_set_name):
 
@@ -564,15 +536,15 @@ class Dataset(object):
 
 
 # Code to convert a panda dataframe into sqlite 3 database:  # df2sqlite_v2(DT.store['updated_stats'],stats)
-DT = Dataset("db.sqlite")
+DT = Dataset("updated_stats")
 
 # To create the feature and label space
-# data_label = DT.create_feature_set("features", "labels")
-# print(len(data_label[0]))
-# print(len(data_label[1]))
+data_label = DT.create_feature_set('data_v3.txt', 'label_v3.txt')
+print(len(data_label[0]))
+print(len(data_label[1]))
 
 # To create an SVM Model
-DT.train_and_test_svm_model("svm_model_v3.pkl", 'data_v2.txt', 'label_v2.txt', False)
+# DT.train_and_test_svm_model("svm_model_v3.pkl", 'data_v2.txt', 'label_v2.txt', False)
 # DT.train_test_with_visualization("data_v2.txt", "label_v2.txt")
 
 # To test the model
