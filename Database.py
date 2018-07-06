@@ -15,6 +15,8 @@ class Database(object):
         self.players = pd.read_sql_query("select ID_P,NAME_P from players_atp where NAME_P not like '%/%';",
                                          self.conn)  # atp players list
         print("Number of players in our dataset is: {}".format(len(self.players)))
+
+        ## Why was this ?
         self.single_players = pd.read_sql_query("select ID_P,NAME_P from players_atp where DATE_P is not NULL",
                                                 self.conn)
         print("Number of single players in our dataset is: {}".format(len(self.single_players)))
