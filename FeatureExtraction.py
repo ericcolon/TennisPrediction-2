@@ -35,32 +35,32 @@ class FeatureExtraction(object):
 
         # print(type(self.hdf['unfiltered_matches']))
 
-    def create_results(self, table, hdf_store_name):
-        # Create results for each game (can extract other features like (number of games played vs)
+    def create_results(self, table):
 
-        # Create a new column to store the result of the game
-        # table["Result"] = "" uncomment this line
+        # Find number of games and number of sets for each game in stats dataset
         print("Before starting create_results function, the length of our database was {}".format(len(table)))
         start_time = time.time()
-        table["Number_of_games"] = ""
+        table["Number_of_games"] = ""  # Create a new column to store the number of games in  a match
         table["Number_of_sets"] = ""
         empty_matches = 0
+        unfinished_matches = 0
         # For each match in stats dataset
         for i in table.index:
             print(i)
-            # GET player ID's and tournament ID from stats dataset
+            # get player ID's and tournament ID from stats dataset
             player1_id = table.at[i, 'ID1']
             player2_id = table.at[i, 'ID2']
             tour_id = table.at[i, 'ID_T']
 
-            #
             # our_match = self.matches[(self.matches.ID1_G == player1_id) & (self.matches.ID2_G == player2_id) & (
             #       self.matches.ID_T_G == tour_id)]
 
+            # Find the match in matches dataset.
             our_match = self.matches.loc[
                 np.logical_and(np.logical_and(self.matches['ID1_G'] == player1_id, self.matches['ID2_G'] == player2_id),
                                self.matches.ID_T_G == tour_id)]
 
+            # If we cannot find the match in our matches dataset, record and continue.
             if our_match.empty:
                 print("We were not able to find this match in the matches dataset")
                 print(player1_id)
@@ -69,43 +69,41 @@ class FeatureExtraction(object):
                 empty_matches = empty_matches + 1
                 continue
 
-
             else:
-                # print(type(our_match))
-                # print(our_match)
-
+                # get the result and sets
                 result = our_match.iloc[0]['RESULT_G']
                 sets = result.split()
-                # print(type(result))
-                # print(result)
-                # print(sets)
+
                 # These are unfinished matches. We ignore them since they might be noisy datapoints.
                 if 'w/o' in sets or 'ret.' in sets or 'def.' in sets or 'n/p' in sets:
                     table = table.drop(i)
+                    unfinished_matches = unfinished_matches + 1
 
                 else:
-
-                    total_number_of_games = 0
+                    total_number_of_games = 0  # variables
                     total_number_of_sets = len(sets)
 
                     for match_set in sets:
                         games = match_set.split('-')
+                        p1_games = int(games[0])  # number of games player 1 has won in that set
 
-                        p1_games = int(games[0])
                         if "(" in games[1]:
-                            p2_games = int(games[1][0])
+                            p2_games = int(games[1][0])  # number of games player 2 has won in that set
                         else:
-
                             p2_games = int(games[1])
+
                         total_number_of_games = total_number_of_games + p1_games + p2_games
+
+                    # Update the table entries
                     table["Number_of_games"] = str(total_number_of_games)
                     table["Number_of_sets"] = str(total_number_of_sets)
 
         print("After deleting unfinished games, the length of our database is {}".format(len(table)))
-        print("The matches we were unable to find {}".format(empty_matches))
+        print("The matches we were unable to find {}.".format(empty_matches))
+        print("The number of unfinished matches in stats dataset was  {}.".format(unfinished_matches))
+
         print("Time took for creating results for each match--- %s seconds ---" % (time.time() - start_time))
-        # Store our updated DataFrame in HDF Storage.
-        # self.hdf.put(hdf_store_name, table, format='table', data_columns=True)
+
         stats_final = table.reset_index(drop=True)  # reset indexes if any more rows are dropped
 
         return stats_final
@@ -148,7 +146,6 @@ class FeatureExtraction(object):
                              int(self.stats.at[i, 'RPWOF_2']),
                              int(self.stats.at[i, 'TPW_1']), int(self.stats.at[i, 'TPW_2'])]
             # Check if any of the values are 0, if so drop that match from our dataset.
-
             if 0 in oncourt_stats:
                 print("This game was invalid because a given stat was equal to 0 ")
                 dropped_games = dropped_games + 1
@@ -169,8 +166,8 @@ class FeatureExtraction(object):
                 int(self.stats.at[i, 'TPW_2']) / (int(self.stats.at[i, 'TPW_1']) + int(self.stats.at[i, 'TPW_2'])))
             stat_feats = [fs_percentage_p1, fs_percentage_p2, w1sp1, w1sp2, w2sp1, w2sp2, wrp1, wrp2, tpwp1, tpwp2]
 
-            if all(f > 0 and f < 1 for f in stat_feats):  # Remove if result is not in range [0,1]
-
+            if all(f > 0 and f < 1 for f in stat_feats):
+                #  if required features are  in range [0,1] calculate the following
                 wsp1 = float((w1sp1 * fs_percentage_p1) + (w2sp1 * (
                         1 - fs_percentage_p1)))  # overall serve winning percentage of Player 1
                 wsp2 = float((w1sp2 * fs_percentage_p2) + (w2sp2 * (
@@ -180,28 +177,30 @@ class FeatureExtraction(object):
                 complete1 = wsp1 * wrp1
                 complete2 = wsp2 * wrp2
                 # Update the match with new features
-                self.stats.at[i, "FSP1"] = float(fs_percentage_p1)
-                self.stats.at[i, "FSP2"] = float(fs_percentage_p2)
-                self.stats.at[i, "W1SP1"] = float(w1sp1)
-                self.stats.at[i, "W1SP2"] = float(w1sp2)
-                self.stats.at[i, "W2SP1"] = (w2sp1)
-                self.stats.at[i, "W2SP2"] = (w2sp2)
-                self.stats.at[i, "WRP1"] = (wrp1)
-                self.stats.at[i, "WRP2"] = (wrp2)  # player 2's percentage of points on return
-                self.stats.at[i, 'WSP1'] = (wsp1)  # players' overall winning on serve percentages
-                self.stats.at[i, 'WSP2'] = (wsp2)
-                self.stats.at[i, 'TPWP1'] = (tpwp1)  # percentage of total points won
-                self.stats.at[i, 'TPWP2'] = (tpwp2)
-                self.stats.at[i, 'SERVEADV1'] = (serveadv1)
-                self.stats.at[i, 'SERVEADV2'] = (serveadv2)
-                self.stats.at[i, 'COMPLETE1'] = (complete1)
-                self.stats.at[i, 'COMPLETE2'] = (complete2)
+                self.stats.at[i, "FSP1"] = fs_percentage_p1
+                self.stats.at[i, "FSP2"] = fs_percentage_p2
+                self.stats.at[i, "W1SP1"] = w1sp1
+                self.stats.at[i, "W1SP2"] = w1sp2
+                self.stats.at[i, "W2SP1"] = w2sp1
+                self.stats.at[i, "W2SP2"] = w2sp2
+                self.stats.at[i, "WRP1"] = wrp1
+                self.stats.at[i, "WRP2"] = wrp2  # player 2's percentage of points on return
+                self.stats.at[i, 'WSP1'] = wsp1  # players' overall winning on serve percentages
+                self.stats.at[i, 'WSP2'] = wsp2
+                self.stats.at[i, 'TPWP1'] = tpwp1  # percentage of total points won
+                self.stats.at[i, 'TPWP2'] = tpwp2
+                self.stats.at[i, 'SERVEADV1'] = serveadv1
+                self.stats.at[i, 'SERVEADV2'] = serveadv2
+                self.stats.at[i, 'COMPLETE1'] = complete1
+                self.stats.at[i, 'COMPLETE2'] = complete2
 
             else:
+                #  if the required features are not in range [0,1] drop it from the dataset
                 self.stats = self.stats.drop(i)
                 print("this game was invalid because a required stat was not in range [0,1]")
                 dropped_games = dropped_games + 1
-        # We can now drop these columns that we used to calculate our updated stats dataset
+
+        # We can now drop these columns that we used to calculate our updated features
         del self.stats['FS_1']
         del self.stats['FS_2']
         del self.stats['FSOF_1']
@@ -219,24 +218,23 @@ class FeatureExtraction(object):
         del self.stats['RPW_2']
         del self.stats['RPWOF_2']
 
-        print("Number of matches dropped because of invalid stats were: {}".format(dropped_games))
+        print("Number of matches dropped because of invalid stats were: {}.".format(dropped_games))
         print('The number of remaining games in our stats dataset is {}:'.format(len(self.stats)))
         print("Time took for creating stat features for each match took--- %s seconds ---" % (time.time() - start_time))
 
         # Order the dataset by Tournament ID and then by Round ID. This will order our matches according to date played.
-        self.stats = self.stats.sort_values(['ID_T', 'ID_R'])  # , ascending=[True, False]).sort_index()
-        # self.stats = self.stats.reset_index(drop=True)
+        self.stats = self.stats.sort_values(['ID_T', 'ID_R'])
         stats_final = self.stats.reset_index(drop=True)
+
         print("V6 of stats dataset includes {} datapoints.".format(len(stats_final)))
-        # Store the updated stats dataset in HDF Store
-        # self.hdf.put('updated_stats', self.stats, format='table', data_columns=True)
+
         return stats_final
 
     def get_head_to_head_statistics(self, stats):
+
         matches = self.unfiltered_matches
         start_time = time.time()
         invalid = 0
-
         stats["H12H"] = ""
         stats["H21H"] = ""
         for i in stats.index:
@@ -246,18 +244,18 @@ class FeatureExtraction(object):
             # Head to head games that Player 1 has won
             # head_to_head_1 = matches[(matches.ID1_G == player1) & (self.matches.ID2_G == player2)]
             # We can maybe do this as a condition so thats its faster ??
+
+            # Matches that player 1 has won
             head_to_head_1 = matches.loc[np.logical_and(matches['ID1_G'] == player1, matches['ID2_G'] == player2)]
 
             # Head to head Games that Player 2 has won
             # head_to_head_2 = matches[(matches.ID1_G == player2) & (self.matches.ID2_G == player1)]
-
+            # Matches that player 2 has won.
             head_to_head_2 = matches.loc[np.logical_and(matches['ID1_G'] == player2, matches['ID2_G'] == player1)]
 
             player_1_wins = len(head_to_head_1)
             player_2_wins = len(head_to_head_2)
             if player_1_wins == 0 and player_2_wins == 0:
-                # print(player1)
-                # print(player2)
                 invalid = invalid + 1
                 continue
             h12h = player_1_wins / (player_2_wins + player_1_wins)
@@ -273,9 +271,9 @@ class FeatureExtraction(object):
         #   self.hdf.put('updated_stats', stats, format='table', data_columns=True)
         return stats_final
 
-    # run this first to add court types to updated_stats dataset
-
     def add_court_types(self, stats):
+        # Adds court types to updated_stats dataset
+
         start_time = time.time()
 
         stats["court_type"] = ""
@@ -284,6 +282,7 @@ class FeatureExtraction(object):
             print(i)
             tournament_id = stats.at[i, "ID_T"]
             tournament = self.tournaments.loc[self.tournaments['ID_T'] == tournament_id]  # Find the tournament
+
             if tournament.empty:
                 court_id_none = court_id_none + 1
                 continue
@@ -505,8 +504,6 @@ def create_surface_matrix(self):
 
 """
 
-# feature_extraction.check_hdfstorage()
-
 """Functions to call one time only
 matches = feature_extraction.get_filtered_matches()
 unfiltered_matches = feature_extraction.get_unfiltered_matches()
@@ -514,15 +511,10 @@ feature_extraction.create_results(matches, 'matches')
 feature_extraction.create_results(unfiltered_matches, 'unfiltered_matches')
 feature_extraction.check_hdfstorage()"""
 
-# This code is to create our new stats database with the new features we calculated and invalid data points dropped
-# new_stats = feature_extraction.create_new_stats()
-# print(new_stats.info())
-# print(len(new_stats.columns))
-
 # Code to create the Sqlite stats database with all the required information to create features
 feature_extraction = FeatureExtraction("db.sqlite")
 new_stats = feature_extraction.create_new_stats()
-new_stats_v1 = feature_extraction.create_results(new_stats, "updated_stats")
+new_stats_v1 = feature_extraction.create_results(new_stats)
 new_stats_v2 = feature_extraction.get_head_to_head_statistics(new_stats_v1)
 new_stats_v3 = feature_extraction.add_court_types(new_stats_v2)
 
@@ -531,7 +523,6 @@ print(new_stats_v1.info())
 print(new_stats_v2.info())
 print(new_stats_v3.info())
 df2sqlite_v2(new_stats_v3, 'updated_stats')
-
 
 """ This code is to create and calculate a surface matrix 
 
