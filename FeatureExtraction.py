@@ -243,7 +243,6 @@ class FeatureExtraction(object):
             player2 = stats.at[i, "ID2"]
             # Head to head games that Player 1 has won
             # head_to_head_1 = matches[(matches.ID1_G == player1) & (self.matches.ID2_G == player2)]
-            # We can maybe do this as a condition so thats its faster ??
 
             # Matches that player 1 has won
             head_to_head_1 = matches.loc[np.logical_and(matches['ID1_G'] == player1, matches['ID2_G'] == player2)]
