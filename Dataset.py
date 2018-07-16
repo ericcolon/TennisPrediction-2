@@ -76,27 +76,30 @@ class Dataset(object):
 
         # Create a new pandas dataframe from the sqlite3 database we created
         conn = sqlite3.connect(updated_stats + '.db')
+
+        # The name on this table should be the same as the dataframe
         dataset = pd.read_sql_query('SELECT * FROM updated_stats', conn)
+
         # This changes all values to numeric if sqlite3 conversion gave a string
-        print(len(dataset))
+        dataset = dataset.apply(pd.to_numeric, errors='coerce')
 
-        dataset = dataset.apply(pd.to_numeric,
-                                errors='coerce')
-
+        # Print statements to visually test some values
         print(dataset.info())
         print(dataset.isna().sum())
         dataset.dropna(subset=['SERVEADV1'], inplace=True)  # drop invalid stats (22)
         dataset.dropna(subset=['court_type'], inplace=True)  # drop invalid stats (616)
         dataset.dropna(subset=['H21H'], inplace=True)  # drop invalid stats (7)
 
-        print(len(dataset))
-
+        # Reset indexes after dropping N/A values
         dataset = dataset.reset_index(drop=True)  # reset indexes if any more rows are dropped
         self.dataset = dataset
-        # run this first to add court types to updated_stats dataset
+
+        # The tournaments - year database
+        tour_conn = sqlite3.connect("tournaments.db")
+        self.tournaments = pd.read_sql_query('SELECT * FROM tournaments', tour_conn)
 
     def create_feature_set(self, feature_set_name, label_set_name):
-
+        # Takes the dataset created by FeatureExtraction and calculates required features for our model.
         common_more_than_5 = 0
         start_time = time.time()
         zero_common_opponents = 0
@@ -109,7 +112,6 @@ class Dataset(object):
         court_dict[1][4] = 0.24
         court_dict[1][5] = 0.24
         court_dict[1][6] = float(1)
-
         court_dict[2][1] = 0.28  # 2 is Clay
         court_dict[2][2] = float(1)
         court_dict[2][3] = 0.31
@@ -141,14 +143,12 @@ class Dataset(object):
         court_dict[6][5] = 0.24
         court_dict[6][6] = float(1)
 
-        ## Bug Testing
-
+        # Bug Testing
         # code to check types of our stats dataset columns
         # with sqlite3.connect('stats.db', detect_types=sqlite3.PARSE_DECLTYPES) as conn:
         #  show_deadline(conn, list(stats))
 
-        # Create a new pandas dataframe from the sqlite3 database we created
-
+        # Start c
         for i in reversed(self.dataset.index):
 
             print(i)
@@ -166,20 +166,14 @@ class Dataset(object):
             current_court_id = self.dataset.at[i, "court_type"]
 
             # Games played earlier than the current tournament we are investigating
-            earlier_games_of_p1 = [game for game in player1_games.itertuples() if
-                                   game.ID_T < curr_tournament]
+            earlier_games_of_p1 = [game for game in player1_games.itertuples() if game.ID_T < curr_tournament]
 
-            earlier_games_of_p2 = [game for game in player2_games.itertuples() if
-                                   game.ID_T < curr_tournament]
+            earlier_games_of_p2 = [game for game in player2_games.itertuples() if game.ID_T < curr_tournament]
 
             # Get past opponents of both players
-            opponents_of_p1 = [
-                games.ID2 if (player1_id == games.ID1) else
-                games.ID1 for games in earlier_games_of_p1]
+            opponents_of_p1 = [games.ID2 if (player1_id == games.ID1) else games.ID1 for games in earlier_games_of_p1]
 
-            opponents_of_p2 = [
-                games.ID2 if (player2_id == games.ID1) else
-                games.ID1 for games in earlier_games_of_p2]
+            opponents_of_p2 = [games.ID2 if (player2_id == games.ID1) else games.ID1 for games in earlier_games_of_p2]
 
             sa = set(opponents_of_p1)
             sb = set(opponents_of_p2)
@@ -196,7 +190,7 @@ class Dataset(object):
                 continue
 
             else:
-
+                # Find matches played against common opponents
                 player1_games_updated = [game for opponent in common_opponents for game in earlier_games_of_p1 if
                                          (player1_id == game.ID1 and opponent == game.ID2) or (
                                                  player1_id == game.ID2 and opponent == game.ID1)]
@@ -204,10 +198,7 @@ class Dataset(object):
                                          (player2_id == game.ID1 and opponent == game.ID2) or (
                                                  player2_id == game.ID2 and opponent == game.ID1)]
 
-                # Common opponent matches are taken. The features are calculated with their respective weights (from court surface matrix)
-
-                # TO DO -- ACES should be divided to their per game average..
-
+                # Get the stats from those matches. Weighted by their surface matrix.
                 list_of_serveadv_1 = [game.SERVEADV1 * court_dict[current_court_id][
                     game.court_type] if game.ID1 == player1_id else game.SERVEADV2 * court_dict[current_court_id][
                     game.court_type] for game in player1_games_updated]
@@ -228,17 +219,35 @@ class Dataset(object):
                     game.court_type] if game.ID1 == player1_id else game.W1SP2 * court_dict[current_court_id][
                     game.court_type] for game in player1_games_updated]
 
-                list_of_w1sp_2 = [game.W1SP1 * court_dict[current_court_id][
-                    game.court_type] if game.ID1 == player2_id else game.W1SP2 * court_dict[current_court_id][
+                list_of_w1sp_2 = [game.W1SP1 * court_dict[current_court_id][game.court_type]
+                                  if game.ID1 == player2_id else game.W1SP2 * court_dict[current_court_id][
                     game.court_type] for game in player2_games_updated]
 
-                list_of_aces_1 = [game.ACES_1 * court_dict[current_court_id][
-                    game.court_type] if game.ID1 == player1_id else (game.ACES_2) * court_dict[current_court_id][
+                # ADDED: ACES PER GAME (NOT PER MATCH)
+                list_of_aces_1 = [game.ACES_1 * court_dict[current_court_id][game.court_type] / game.Number_of_games
+                                  if game.ID1 == player1_id else game.ACES_2 * court_dict[current_court_id][
+                    game.court_type] / game.Number_of_games for game in player1_games_updated]
+
+                list_of_aces_2 = [game.ACES_1 * court_dict[current_court_id][game.court_type] / game.Number_of_games
+                                  if game.ID1 == player2_id else game.ACES_2 * court_dict[current_court_id][
+                    game.court_type] / game.Number_of_games for game in player2_games_updated]
+
+                # List of head to head statistics between two players
+                list_of_h2h_1 = [game.H12H * court_dict[current_court_id][game.court_type]
+                                 if game.ID1 == player1_id else game.H21H * court_dict[current_court_id][
                     game.court_type] for game in player1_games_updated]
 
-                list_of_aces_2 = [game.ACES_1 * court_dict[current_court_id][
-                    game.court_type] if game.ID1 == player2_id else game.ACES_2 * court_dict[current_court_id][
+                list_of_h2h_2 = [game.H12H * court_dict[current_court_id][game.court_type]
+                                 if game.ID1 == player2_id else game.H21H * court_dict[current_court_id][
                     game.court_type] for game in player2_games_updated]
+
+                list_of_tpw_1 = [game.TPWP1 * court_dict[current_court_id][game.court_type] / game.Number_of_games
+                                 if game.ID1 == player1_id else game.TPWP2 * court_dict[current_court_id][
+                    game.court_type] / game.Number_of_games for game in player1_games_updated]
+
+                list_of_tpw_2 = [game.TPWP1 * court_dict[current_court_id][game.court_type] / game.Number_of_games
+                                 if game.ID1 == player2_id else game.TPWP2 * court_dict[current_court_id][
+                    game.court_type] / game.Number_of_games for game in player2_games_updated]
 
                 serveadv_1 = s.mean(list_of_serveadv_1)
                 serveadv_2 = s.mean(list_of_serveadv_2)
@@ -246,23 +255,28 @@ class Dataset(object):
                 complete_2 = s.mean(list_of_complete_2)
                 w1sp_1 = s.mean(list_of_w1sp_1)
                 w1sp_2 = s.mean(list_of_w1sp_2)
-                aces_1 = s.mean(list_of_aces_1)
+                aces_1 = s.mean(list_of_aces_1) # Aces per game
                 aces_2 = s.mean(list_of_aces_2)
+                h2h_1 = s.mean(list_of_h2h_1)
+                h2h_2 = s.mean(list_of_h2h_2)
+                tpw1 = s.mean(list_of_tpw_1) # Percentage of total points won
+                tpw2 = s.mean(list_of_tpw_2)
 
                 # The first feature of our feature set is the last match on the stats dataset
-                if (random() > 0.5):
+                if random() > 0.5:
                     # Player 1 has won. So we label it 1.
-
                     feature = np.array(
-                        [serveadv_1 - serveadv_2, complete_1 - complete_2, w1sp_1 - w1sp_2, aces_1 - aces_2])
+                        [serveadv_1 - serveadv_2, complete_1 - complete_2, w1sp_1 - w1sp_2, aces_1 - aces_2,
+                         h2h_1 - h2h_2])
                     label = 1
                     X.append(feature)
                     y.append(label)
 
                 else:
-
+                    # Else player 1 has lost, so we label it 0. Tht hope is that player 1 is chosen arbitrarily.
                     feature = np.array(
-                        [serveadv_2 - serveadv_1, complete_2 - complete_1, w1sp_2 - w1sp_1, aces_2 - aces_1])
+                        [serveadv_2 - serveadv_1, complete_2 - complete_1, w1sp_2 - w1sp_1, aces_2 - aces_1,
+                         h2h_2 - h2h_1])
                     label = 0
                     X.append(feature)
                     y.append(label)
@@ -292,15 +306,29 @@ class Dataset(object):
         pickle_in_2 = open(labelset_name, "rb")
         Y = np.asarray(pickle.load(pickle_in_2))
 
-        print(X.shape)
-        print(Y.shape)
-
         # Need the reverse the feature and labels because last match is the first feature in our array ??
 
         rev_X = X[::-1]
         rev_y = Y[::-1]
 
-        X_train, X_test, y_train, y_test = train_test_split(rev_X, rev_y, test_size=0.2)
+        # Before standardizing we want to take out the H2H column
+
+        h2h = rev_X[:, 4]
+        print(rev_X.shape)
+        print(h2h.shape)
+        # Delete this specific column
+        rev_X = np.delete(rev_X, np.s_[-1], 1)
+        print(rev_X.shape)
+
+        # Before
+        # This line standardizes a feature X by dividing it by its standard deviation.
+        X_scaled = preprocessing.scale(rev_X, with_mean=False)
+
+        X_scaled = np.column_stack((X_scaled, h2h))
+
+        print(X_scaled.shape)
+
+        X_train, X_test, y_train, y_test = train_test_split(X_scaled, rev_y, test_size=0.2)
 
         print(len(X_train))
         print(len(X_test))
@@ -308,26 +336,17 @@ class Dataset(object):
         print("Size of our first dimension is {}.".format(np.size(rev_X, 0)))
         print("Size of our second dimension is {}.".format(np.size(rev_X, 1)))
 
-        # Split into train and test datasets. Until around tournamnet id 11364 is training
+        # Split into train and test datasets. Until around tournament id 11364 is training
         print("The standard deviations of our features is {}.".format(np.std(rev_X, axis=0)))
-
-        # This line standardisez a feature X by dividing it by its standard deviation.
-        X_scaled = preprocessing.scale(rev_X, with_mean=False)
 
         # Center to the mean and component wise scale to unit variance. --> X_scaled = preprocessing.scale(rev_X)
 
-        train_X = X_scaled[:69685]
-        test_X = X_scaled[69685:]
-        train_Y = rev_y[:69685]
-        test_Y = rev_y[69685:]
-
-        print(len(train_X))
-        print(len(test_X))
-
+        # Create and train the model
         clf = svm.NuSVC()
+        clf.fit(X_train, y_train)
 
-        clf.fit(train_X, train_Y)
-        self.test_model(clf, model_name, train_X, test_X, train_Y, test_Y, dataset_name, labelset_name)
+        # Testing the model
+        self.test_model(clf, model_name, X_train, X_test, y_train, y_test, dataset_name, labelset_name)
 
         print("Time took for training and testing the model took--- %s seconds ---" % (time.time() - start_time))
         # now we save the model to a file if test were successfull
@@ -482,6 +501,7 @@ class Dataset(object):
             list_of_serveadv_1 = [game.SERVEADV1 * court_dict[current_court_id][
                 game.court_type] if game.ID1 == player1_id else game.SERVEADV2 * court_dict[current_court_id][
                 game.court_type] for game in player1_games_updated]
+
             list_of_serveadv_2 = [game.SERVEADV1 * court_dict[current_court_id][
                 game.court_type] if game.ID1 == player2_id else game.SERVEADV2 * court_dict[current_court_id][
                 game.court_type] for game in player2_games_updated]
@@ -510,6 +530,14 @@ class Dataset(object):
                 game.court_type] if game.ID1 == player2_id else game.ACES_2 * court_dict[current_court_id][
                 game.court_type] for game in player2_games_updated]
 
+            list_of_h2h_1 = [game.H12H * court_dict[current_court_id][game.court_type]
+                             if game.ID1 == player1_id else game.H21H * court_dict[current_court_id][
+                game.court_type] for game in player1_games_updated]
+
+            list_of_h2h_2 = [game.H12H * court_dict[current_court_id][game.court_type]
+                             if game.ID1 == player2_id else game.H21H * court_dict[current_court_id][
+                game.court_type] for game in player2_games_updated]
+
             serveadv_1 = s.mean(list_of_serveadv_1)
             serveadv_2 = s.mean(list_of_serveadv_2)
             complete_1 = s.mean(list_of_complete_1)
@@ -518,8 +546,10 @@ class Dataset(object):
             w1sp_2 = s.mean(list_of_w1sp_2)
             aces_1 = s.mean(list_of_aces_1)
             aces_2 = s.mean(list_of_aces_2)
+            h2h_1 = s.mean(list_of_h2h_1)
+            h2h_2 = s.mean(list_of_h2h_2)
             feature = np.array(
-                [serveadv_1 - serveadv_2, complete_1 - complete_2, w1sp_1 - w1sp_2, aces_1 - aces_2])
+                [serveadv_1 - serveadv_2, complete_1 - complete_2, w1sp_1 - w1sp_2, aces_1 - aces_2, h2h_1 - h2h_2])
 
             print("The prediction between player {} and player {} is {}".format(player1_id, player2_id, clf.predict(
                 np.array(feature).reshape(1, -1))))
@@ -532,41 +562,30 @@ class Dataset(object):
             print("These players do not have enough common opponents to make predictions")
             return
 
-        # DT.add_court_types()  # This should be moved to feature extraction
 
-
-# Code to convert a panda dataframe into sqlite 3 database:  # df2sqlite_v2(DT.store['updated_stats'],stats)
 DT = Dataset("updated_stats")
 
 # To create the feature and label space
-data_label = DT.create_feature_set('data_v3.txt', 'label_v3.txt')
-print(len(data_label[0]))
-print(len(data_label[1]))
+#data_label = DT.create_feature_set('data_with_h2h.txt', 'label_with_h2h.txt')
+#print(len(data_label[0]))
+#print(len(data_label[1]))
 
 # To create an SVM Model
-# DT.train_and_test_svm_model("svm_model_v3.pkl", 'data_v2.txt', 'label_v2.txt', False)
-# DT.train_test_with_visualization("data_v2.txt", "label_v2.txt")
+DT.train_and_test_svm_model("svm_model_v4_h2h.pkl", 'data_with_h2h.txt', 'label_with_h2h.txt', True)
 
 # To test the model
 """DT.test_model("svm_model.pkl", "data_v1.txt", "label_v1.txt")
 DT.test_model("svm_model_v2.pkl", "data_v1.txt", "label_v1.txt")
 DT.test_model("svm_model.pkl", "data_v2.txt", "label_v2.txt")
 DT.test_model("svm_model_v2.pkl", "data_v2.txt", "label_v2.txt")
-"""
 
-# Bug Fixing
-# DT.test_feature_space()
-
-# Visualization Part
-# DT.train_test_with_visualization("data_v2.txt", "label_v2.txt")
 
 # To make predictions on Wimbledon Day 3
-"""p1_list = [19, 6101, 7459, 5837, 4061, 11704, 20193, 7806, 30470, 2123, 4454, 18094, 678, 655, 10995, 961,6465]
-p2_list = [5127, 9471, 791, 9840, 1266, 9861, 22429, 12661, 26923, 5917, 1092, 27482, 685, 14177, 10828, 22087,468]
+p1_list = [19, 6101, 7459, 5837, 4061, 11704, 20193, 7806, 30470, 2123, 4454, 18094, 678, 655, 10995, 961, 6465]
+p2_list = [5127, 9471, 791, 9840, 1266, 9861, 22429, 12661, 26923, 5917, 1092, 27482, 685, 14177, 10828, 22087, 468]
 
 for p1, p2 in zip(p1_list, p2_list):
-    DT.make_predictions("svm_model.pkl",p1, p2, 5, 15300)
-
+    DT.make_predictions("svm_model_v4.pkl", p1, p2, 5, 15300)
 """
 # To make predictions on Wimbledon Day 4
 """p1_list = [677, 875, 6465, 5992, 17829, 22434, 4067, 20847, 8806, 33502, 13447, 4009, 39309, 1113, 650, 29812]
@@ -575,4 +594,12 @@ p2_list = [9043, 29932, 468, 6458, 18017, 6081, 3833, 11003, 11522, 12043, 6648,
 for p1, p2 in zip(p1_list, p2_list):
     DT.make_predictions("svm_model.pkl",p1, p2, 5, 15300)
 
+"""
+# To make predictions on Wimbledon Semi Finals
+"""
+p1_list = [5992, 7459]
+p2_list = [677,5837]
+
+for p1, p2 in zip(p1_list, p2_list):
+    DT.make_predictions("svm_model_v3.pkl",p1, p2, 5, 15300)
 """
