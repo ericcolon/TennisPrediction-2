@@ -14,7 +14,6 @@ class FeatureExtraction(object):
     def __init__(self, database):
 
         self.db = Database(database)
-        # self.hdf = pd.HDFStore('storage.h5', mode='r')
         self.matches = self.db.get_matches()
         self.unfiltered_matches = self.db.get_unfiltered_matches()
         self.unfiltered_tournaments = self.db.get_unfiltered_tournaments()
@@ -22,18 +21,33 @@ class FeatureExtraction(object):
         self.players = self.db.get_players()
         self.tournaments = self.db.get_tournaments()
         self.player_surface_dict = {}
-        self.X = []
-        self.y = []
 
-    def check_hdfstorage(self):
-        # Check everything is stored in their latest version. Their types and lengths
+    # For Time discount factor purposes
+    def create_tournament_year_database(self):
+        self.tournaments["DATE_T"] = pd.to_datetime(self.tournaments["DATE_T"])
+        tours = self.tournaments["DATE_T"].dt.year.to_frame()
+        tours.reset_index(level=0, inplace=True)
 
-        print(self.hdf.keys())
-        # print(type(self.hdf['matches']))
-        print(type(self.hdf['updated_stats']))
-        print(self.hdf['updated_stats'].head())
+        # Create a new pandas dataframe from the sqlite3 database we created
+        conn = sqlite3.connect('updated_stats.db')
+        # The name on this table should be the same as the dataframe
+        dataset = pd.read_sql_query('SELECT * FROM updated_stats', conn)
+        # This changes all values to numeric if sqlite3 conversion gave a string
+        dataset = dataset.apply(pd.to_numeric, errors='coerce')
+        dataset.dropna(subset=['SERVEADV1'], inplace=True)  # drop invalid stats (22)
+        dataset.dropna(subset=['court_type'], inplace=True)  # drop invalid stats (616)
+        dataset.dropna(subset=['H21H'], inplace=True)  # drop invalid stats (7)
 
-        # print(type(self.hdf['unfiltered_matches']))
+        # Reset indexes after dropping N/A values
+        dataset = dataset.reset_index(drop=True)  # reset indexes if any more rows are dropped
+        dataset['year'] = ""
+        for i in dataset.index:
+            print(i)
+            tour_id = dataset.at[i, "ID_T"]
+            tournament = tours.loc[tours['index'] == tour_id]
+            dataset['year'] = tournament['DATE_T']
+
+        df2sqlite_v2(dataset, "updated_stats_w_year")
 
     def create_results(self, table):
 
@@ -267,7 +281,6 @@ class FeatureExtraction(object):
                 time.time() - start_time))
         stats_final = stats.reset_index(drop=True)  # reset indexes if any more rows are dropped
 
-        #   self.hdf.put('updated_stats', stats, format='table', data_columns=True)
         return stats_final
 
     def add_court_types(self, stats):
@@ -503,13 +516,7 @@ def create_surface_matrix(self):
 
 """
 
-"""Functions to call one time only
-matches = feature_extraction.get_filtered_matches()
-unfiltered_matches = feature_extraction.get_unfiltered_matches()
-feature_extraction.create_results(matches, 'matches')
-feature_extraction.create_results(unfiltered_matches, 'unfiltered_matches')
-feature_extraction.check_hdfstorage()"""
-
+""" 
 # Code to create the Sqlite stats database with all the required information to create features
 feature_extraction = FeatureExtraction("db.sqlite")
 new_stats = feature_extraction.create_new_stats()
@@ -522,6 +529,11 @@ print(new_stats_v1.info())
 print(new_stats_v2.info())
 print(new_stats_v3.info())
 df2sqlite_v2(new_stats_v3, 'updated_stats')
+"""
+feature_extraction = FeatureExtraction("db.sqlite")
+
+# Code for time discounting
+feature_extraction.create_tournament_year_database()
 
 """ This code is to create and calculate a surface matrix 
 
