@@ -23,31 +23,6 @@ class FeatureExtraction(object):
         self.player_surface_dict = {}
 
     # For Time discount factor purposes
-    def create_tournament_year_database(self):
-        self.tournaments["DATE_T"] = pd.to_datetime(self.tournaments["DATE_T"])
-        tours = self.tournaments["DATE_T"].dt.year.to_frame()
-        tours.reset_index(level=0, inplace=True)
-
-        # Create a new pandas dataframe from the sqlite3 database we created
-        conn = sqlite3.connect('updated_stats.db')
-        # The name on this table should be the same as the dataframe
-        dataset = pd.read_sql_query('SELECT * FROM updated_stats', conn)
-        # This changes all values to numeric if sqlite3 conversion gave a string
-        dataset = dataset.apply(pd.to_numeric, errors='coerce')
-        dataset.dropna(subset=['SERVEADV1'], inplace=True)  # drop invalid stats (22)
-        dataset.dropna(subset=['court_type'], inplace=True)  # drop invalid stats (616)
-        dataset.dropna(subset=['H21H'], inplace=True)  # drop invalid stats (7)
-
-        # Reset indexes after dropping N/A values
-        dataset = dataset.reset_index(drop=True)  # reset indexes if any more rows are dropped
-        dataset['year'] = ""
-        for i in dataset.index:
-            print(i)
-            tour_id = dataset.at[i, "ID_T"]
-            tournament = tours.loc[tours['index'] == tour_id]
-            dataset['year'] = tournament['DATE_T']
-
-        df2sqlite_v2(dataset, "updated_stats_w_year")
 
     def create_results(self, table):
 
@@ -94,6 +69,7 @@ class FeatureExtraction(object):
                     unfinished_matches = unfinished_matches + 1
 
                 else:
+
                     total_number_of_games = 0  # variables
                     total_number_of_sets = len(sets)
 
@@ -109,8 +85,8 @@ class FeatureExtraction(object):
                         total_number_of_games = total_number_of_games + p1_games + p2_games
 
                     # Update the table entries
-                    table["Number_of_games"] = str(total_number_of_games)
-                    table["Number_of_sets"] = str(total_number_of_sets)
+                    table.at[i, "Number_of_games"] = str(total_number_of_games)
+                    table.at[i, "Number_of_sets"] = str(total_number_of_sets)
 
         print("After deleting unfinished games, the length of our database is {}".format(len(table)))
         print("The matches we were unable to find {}.".format(empty_matches))
@@ -309,6 +285,25 @@ class FeatureExtraction(object):
         print("Time took for adding court ids to stats took--- %s seconds ---" % (time.time() - start_time))
 
         return stats_final
+
+    def create_tournament_year_database(self, table):
+        print(len(self.tournaments))
+        self.tournaments["DATE_T"] = pd.to_datetime(self.tournaments["DATE_T"])
+        tours = self.tournaments["DATE_T"].dt.year.to_frame()
+        tours.reset_index(level=0, inplace=True)
+
+        table['year'] = ""
+        for i in table.index:
+            print(i)
+            tour_id = table.at[i, "ID_T"]
+            tournament = tours.loc[tours["index"] == tour_id]
+
+            if not tournament.empty:
+                table.at[i, 'year'] = int(tournament["DATE_T"])
+
+        table['year'].fillna(2018, inplace=True)
+        final_dataset = table.reset_index(drop=True)  # reset indexes if any more rows are dropped
+        return final_dataset
 
     def get_filtered_matches(self):
         return self.matches
@@ -515,7 +510,6 @@ def create_surface_matrix(self):
             number_of_players]
 
 """
-
 """ 
 # Code to create the Sqlite stats database with all the required information to create features
 feature_extraction = FeatureExtraction("db.sqlite")
@@ -523,18 +517,14 @@ new_stats = feature_extraction.create_new_stats()
 new_stats_v1 = feature_extraction.create_results(new_stats)
 new_stats_v2 = feature_extraction.get_head_to_head_statistics(new_stats_v1)
 new_stats_v3 = feature_extraction.add_court_types(new_stats_v2)
-
+new_stats_v4 = feature_extraction.create_tournament_year_database(new_stats_v3)
 print(new_stats.info())
 print(new_stats_v1.info())
 print(new_stats_v2.info())
 print(new_stats_v3.info())
-df2sqlite_v2(new_stats_v3, 'updated_stats')
+print(new_stats_v4.info())
+df2sqlite_v2(new_stats_v4, 'updated_stats_v2')
 """
-feature_extraction = FeatureExtraction("db.sqlite")
-
-# Code for time discounting
-feature_extraction.create_tournament_year_database()
-
 """ This code is to create and calculate a surface matrix 
 
 means_and_stds = feature_extraction.create_surface_matrix()
