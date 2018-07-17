@@ -50,6 +50,41 @@ def show_deadline(conn, column_list):
         print('    type  :', type(row[col]))
     return
 
+def test_model(modelname, dataset_name, labelset_name, split):
+    pickle_in = open(dataset_name, "rb")
+    X = np.asarray(pickle.load(pickle_in))
+    pickle_in_2 = open(labelset_name, "rb")
+    Y = np.asarray(pickle.load(pickle_in_2))
+    model = joblib.load(modelname)
+    rev_X = X[::-1]
+    rev_y = Y[::-1]
+    number_of_columns = rev_X.shape[1] - 1
+    print(number_of_columns)
+
+    # Before standardizing we want to take out the H2H column
+
+    h2h = rev_X[:, number_of_columns]
+    print(rev_X.shape)
+    print(h2h.shape)
+
+    # Delete this specific column
+    rev_X = np.delete(rev_X, np.s_[-1], 1)
+    print(rev_X.shape)
+    print((rev_X.shape[1]))
+    # Before
+    # This line standardizes a feature X by dividing it by its standard deviation.
+    X_scaled = preprocessing.scale(rev_X, with_mean=False)
+    X_scaled = np.column_stack((X_scaled, h2h))
+    print(X_scaled.shape)
+
+    X_train, X_test, y_train, y_test = train_test_split(X_scaled, rev_y, test_size=split, shuffle=False)
+
+    print("Training accuracy for {} on {} and {} is: {}".format(modelname, dataset_name, labelset_name,
+                                                                model.score(X_train, y_train)))
+
+    print("Testing accuracy for {} on {} and {} is: {}".format(modelname, dataset_name, labelset_name,
+                                                               model.score(X_test, y_test)))
+
 
 """
 def google_cloud_upload():
@@ -72,13 +107,13 @@ def google_cloud_upload():
 
 class Dataset(object):
 
-    def __init__(self, updated_stats):
+    def __init__(self, database_name):
 
         # Create a new pandas dataframe from the sqlite3 database we created
-        conn = sqlite3.connect(updated_stats + '.db')
+        conn = sqlite3.connect(database_name + '.db')
 
         # The name on this table should be the same as the dataframe
-        dataset = pd.read_sql_query('SELECT * FROM updated_stats', conn)
+        dataset = pd.read_sql_query('SELECT * FROM updated_stats_v2', conn)
 
         # This changes all values to numeric if sqlite3 conversion gave a string
         dataset = dataset.apply(pd.to_numeric, errors='coerce')
@@ -92,14 +127,16 @@ class Dataset(object):
 
         # Reset indexes after dropping N/A values
         dataset = dataset.reset_index(drop=True)  # reset indexes if any more rows are dropped
-        self.dataset = dataset
+        dataset['year'].fillna(2018, inplace=True)
+        dataset = dataset.reset_index(drop=True)  # reset indexes if any more rows are dropped
+        print(dataset.isna().sum())
+        print(dataset.info())
 
-        # The tournaments - year database
-        tour_conn = sqlite3.connect("tournaments.db")
-        self.tournaments = pd.read_sql_query('SELECT * FROM tournaments', tour_conn)
+        self.dataset = dataset
 
     def create_feature_set(self, feature_set_name, label_set_name):
         # Takes the dataset created by FeatureExtraction and calculates required features for our model.
+        # As of July 17: takes 90 minutes to complete the feature creation.
         common_more_than_5 = 0
         start_time = time.time()
         zero_common_opponents = 0
@@ -255,11 +292,11 @@ class Dataset(object):
                 complete_2 = s.mean(list_of_complete_2)
                 w1sp_1 = s.mean(list_of_w1sp_1)
                 w1sp_2 = s.mean(list_of_w1sp_2)
-                aces_1 = s.mean(list_of_aces_1) # Aces per game
+                aces_1 = s.mean(list_of_aces_1)  # Aces per game
                 aces_2 = s.mean(list_of_aces_2)
                 h2h_1 = s.mean(list_of_h2h_1)
                 h2h_2 = s.mean(list_of_h2h_2)
-                tpw1 = s.mean(list_of_tpw_1) # Percentage of total points won
+                tpw1 = s.mean(list_of_tpw_1)  # Percentage of total points won
                 tpw2 = s.mean(list_of_tpw_2)
 
                 # The first feature of our feature set is the last match on the stats dataset
@@ -267,26 +304,48 @@ class Dataset(object):
                     # Player 1 has won. So we label it 1.
                     feature = np.array(
                         [serveadv_1 - serveadv_2, complete_1 - complete_2, w1sp_1 - w1sp_2, aces_1 - aces_2,
-                         h2h_1 - h2h_2])
+                         tpw1 - tpw2, h2h_1 - h2h_2])
                     label = 1
-                    X.append(feature)
-                    y.append(label)
+
+                    if np.any(np.isnan(feature)):
+                        continue
+                    else:
+                        X.append(feature)
+                        y.append(label)
 
                 else:
                     # Else player 1 has lost, so we label it 0. Tht hope is that player 1 is chosen arbitrarily.
                     feature = np.array(
                         [serveadv_2 - serveadv_1, complete_2 - complete_1, w1sp_2 - w1sp_1, aces_2 - aces_1,
-                         h2h_2 - h2h_1])
+                         tpw2 - tpw1, h2h_2 - h2h_1])
                     label = 0
-                    X.append(feature)
-                    y.append(label)
+                    if np.any(np.isnan(feature)):
+                        continue
+                    else:
+                        X.append(feature)
+                        y.append(label)
 
         print("{} matches had more than 5 common opponents in the past".format(common_more_than_5))
         print("{} matches 0 common opponents in the past".format(zero_common_opponents))
+        """ rev_X = np.asarray(X[::-1])
+        rev_y = np.asarray(y[::-1])
 
-        # Need to reverse the arrays !!
-        # rev_X = X[::-1]
-        # rev_y = Y[::-1]
+        # Before standardizing we want to take out the H2H column
+
+        number_of_columns = rev_X.shape[1] - 1
+        h2h = rev_X[:, number_of_columns]
+        print(rev_X.shape)
+        print(h2h.shape)
+        # Delete this specific column
+        rev_X = np.delete(rev_X, np.s_[-1], 1)
+        print(rev_X.shape)
+        # Before
+        # This line standardizes a feature X by dividing it by its standard deviation.
+        X_scaled = preprocessing.scale(rev_X, with_mean=False)
+
+        X_scaled = np.column_stack((X_scaled, h2h))
+        print(X_scaled.shape)"""
+
         print("Time took for creating stat features for each match took--- %s seconds ---" % (time.time() - start_time))
         with open(feature_set_name, "wb") as fp:  # Pickling
             pickle.dump(X, fp)
@@ -296,70 +355,70 @@ class Dataset(object):
 
         return [X, y]
 
-    def train_and_test_svm_model(self, model_name, dataset_name, labelset_name, dump):
+    def train_and_test_svm_model(self, model_name, dataset_name, labelset_name, dump, split):
+
         print("Training a new model {} on dataset {} and label set {}".format(model_name, dataset_name, labelset_name))
 
         start_time = time.time()
 
         pickle_in = open(dataset_name, "rb")
-        X = np.asarray(pickle.load(pickle_in))
+        x = np.asarray(pickle.load(pickle_in))
         pickle_in_2 = open(labelset_name, "rb")
-        Y = np.asarray(pickle.load(pickle_in_2))
+        y = np.asarray(pickle.load(pickle_in_2))
 
-        # Need the reverse the feature and labels because last match is the first feature in our array ??
-
-        rev_X = X[::-1]
-        rev_y = Y[::-1]
+        print("Size of our first dimension is {}.".format(np.size(x, 0)))
+        print("Size of our second dimension is {}.".format(np.size(x, 1)))
+        rev_X = x[::-1]
+        rev_y = y[::-1]
+        number_of_columns = rev_X.shape[1] - 1
+        print(number_of_columns)
 
         # Before standardizing we want to take out the H2H column
 
-        h2h = rev_X[:, 4]
+        h2h = rev_X[:, number_of_columns]
         print(rev_X.shape)
         print(h2h.shape)
+
         # Delete this specific column
         rev_X = np.delete(rev_X, np.s_[-1], 1)
         print(rev_X.shape)
+        print((rev_X.shape[1]))
+        print(np.any(np.isnan(rev_X)))
 
-        # Before
-        # This line standardizes a feature X by dividing it by its standard deviation.
-        X_scaled = preprocessing.scale(rev_X, with_mean=False)
+        # Center to the mean and component wise scale to unit variance.
+        x_scaled = preprocessing.scale(rev_X, with_mean=False)
+        x_scaled = np.column_stack((x_scaled, h2h))
 
-        X_scaled = np.column_stack((X_scaled, h2h))
+        x_train, x_test, y_train, y_test = train_test_split(x_scaled, rev_y, test_size=split, shuffle=False)
+        # Need the reverse the feature and labels because last match is the first feature in our array ??
 
-        print(X_scaled.shape)
+        print(len(x_train))
+        print(len(x_test))
 
-        X_train, X_test, y_train, y_test = train_test_split(X_scaled, rev_y, test_size=0.2)
-
-        print(len(X_train))
-        print(len(X_test))
-
-        print("Size of our first dimension is {}.".format(np.size(rev_X, 0)))
-        print("Size of our second dimension is {}.".format(np.size(rev_X, 1)))
-
-        # Split into train and test datasets. Until around tournament id 11364 is training
-        print("The standard deviations of our features is {}.".format(np.std(rev_X, axis=0)))
-
-        # Center to the mean and component wise scale to unit variance. --> X_scaled = preprocessing.scale(rev_X)
+        print("The standard deviations of our features is {}.".format(np.std(x_train, axis=0)))
+        print("The means of our features is {}.".format(np.mean(x_train, axis=0)))
 
         # Create and train the model
         clf = svm.NuSVC()
-        clf.fit(X_train, y_train)
+        clf.fit(x_train, y_train)
 
         # Testing the model
-        self.test_model(clf, model_name, X_train, X_test, y_train, y_test, dataset_name, labelset_name)
+
+        print("Training accuracy for {} on {} and {} is: {}".format(model_name, dataset_name, labelset_name,
+                                                                    clf.score(x_train, y_train)))
+
+        print("Testing accuracy for {} on {} and {} is: {}".format(model_name, dataset_name, labelset_name,
+                                                                   clf.score(x_test, y_test)))
 
         print("Time took for training and testing the model took--- %s seconds ---" % (time.time() - start_time))
-        # now we save the model to a file if test were successfull
+
+        # now we save the model to a file if test were successful
         if (dump):
             joblib.dump(clf, model_name)
 
-    def test_model(self, model, modelname, X_train, X_test, y_train, y_test, dataset_name, labelset_name):
+    def create_100_decision_stumps(self):
+        pass
 
-        print("Training accuracy for {} on {} and {} is: {}".format(modelname, dataset_name, labelset_name,
-                                                                    model.score(X_train, y_train)))
-
-        print("Testing accuracy for {} on {} and {} is: {}".format(modelname, dataset_name, labelset_name,
-                                                                   model.score(X_test, y_test)))
 
     def train_test_with_visualization(self, dataset_name, labelset_name):
         pickle_in = open(dataset_name, "rb")
@@ -563,22 +622,20 @@ class Dataset(object):
             return
 
 
-DT = Dataset("updated_stats")
+DT = Dataset("updated_stats_v2")
 
 # To create the feature and label space
-#data_label = DT.create_feature_set('data_with_h2h.txt', 'label_with_h2h.txt')
-#print(len(data_label[0]))
-#print(len(data_label[1]))
+data_label = DT.create_feature_set('data_tpw_h2h.txt', 'label_tpw_h2h.txt')
+print(len(data_label[0]))
+print(len(data_label[1]))
 
 # To create an SVM Model
-DT.train_and_test_svm_model("svm_model_v4_h2h.pkl", 'data_with_h2h.txt', 'label_with_h2h.txt', True)
+DT.train_and_test_svm_model("svm_model_tpw_h2h.pkl", 'data_tpw_h2h.txt', 'label_tpw_h2h.txt', True, 0.2)
 
 # To test the model
-"""DT.test_model("svm_model.pkl", "data_v1.txt", "label_v1.txt")
-DT.test_model("svm_model_v2.pkl", "data_v1.txt", "label_v1.txt")
-DT.test_model("svm_model.pkl", "data_v2.txt", "label_v2.txt")
-DT.test_model("svm_model_v2.pkl", "data_v2.txt", "label_v2.txt")
-
+# test_model("svm_model_v4_h2h.pkl", "data_with_h2h.txt", "label_with_h2h.txt", 0.2)
+# test_model("svm_model_v3.pkl", "data_v3.txt", "label_v3.txt", 0.2)
+"""
 
 # To make predictions on Wimbledon Day 3
 p1_list = [19, 6101, 7459, 5837, 4061, 11704, 20193, 7806, 30470, 2123, 4454, 18094, 678, 655, 10995, 961, 6465]
@@ -586,9 +643,9 @@ p2_list = [5127, 9471, 791, 9840, 1266, 9861, 22429, 12661, 26923, 5917, 1092, 2
 
 for p1, p2 in zip(p1_list, p2_list):
     DT.make_predictions("svm_model_v4.pkl", p1, p2, 5, 15300)
-"""
+
 # To make predictions on Wimbledon Day 4
-"""p1_list = [677, 875, 6465, 5992, 17829, 22434, 4067, 20847, 8806, 33502, 13447, 4009, 39309, 1113, 650, 29812]
+p1_list = [677, 875, 6465, 5992, 17829, 22434, 4067, 20847, 8806, 33502, 13447, 4009, 39309, 1113, 650, 29812]
 p2_list = [9043, 29932, 468, 6458, 18017, 6081, 3833, 11003, 11522, 12043, 6648, 25543, 14727, 9521, 29939, 4010]
 
 for p1, p2 in zip(p1_list, p2_list):
