@@ -14,7 +14,7 @@ from sklearn.linear_model import SGDClassifier
 from sklearn.model_selection import train_test_split
 from sqlalchemy import create_engine
 
-from Database import *
+from DataExtraction import *
 
 
 # Methods to convert pandas dataframe into sqlite3 database
@@ -175,7 +175,7 @@ def google_cloud_upload():
         bucket))"""
 
 
-class Dataset(object):
+class Models(object):
 
     # TODO try gradient boosted regression trees. link: https://www.youtube.com/watch?v=IXZKgIsZRm0&t=892s
     # TODO XGBOOST, multi layered neural network
@@ -596,7 +596,8 @@ class Dataset(object):
                 print("Prediction for match {} was {}.".format(features_match_dictionary[tuple(old_test_vector)],
                                                                linear_clf.predict(
                                                                    np.asarray(new_test_vector).reshape(1, -1))))
-
+            if save:
+                joblib.dump(linear_clf, 'DT_Model_3.pkl')
         else:
 
             # We want to train our model and test its training and testing accuracy
@@ -984,7 +985,7 @@ class Dataset(object):
             return
 
 
-DT = Dataset("updated_stats_v2")
+DT = Models("updated_stats_v2")
 
 # To create the feature and label space
 # data_label = DT.create_feature_set('data_tpw_h2h.txt', 'label_tpw_h2h.txt')
@@ -994,7 +995,7 @@ DT = Dataset("updated_stats_v2")
 # To create an SVM Model
 # DT.train_and_test_svm_model("svm_model_tpw_no_h2h.pkl", 'data_tpw_h2h.txt', 'label_tpw_h2h.txt', True, 0.2)
 DT.train_decision_stump_model('data_tpw_h2h.txt', 'label_tpw_h2h.txt', development_mode=False, prediction_mode=True,
-                              save=False)
+                              save=True)
 # To test the model
 # test_model("svm_model_v4_h2h.pkl", "data_with_h2h.txt", "label_with_h2h.txt", 0.2)
 # test_model("svm_model_v3.pkl", "data_v3.txt", "label_v3.txt", 0.2)

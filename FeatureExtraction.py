@@ -1,4 +1,4 @@
-from Database import *
+from DataExtraction import *
 import time
 from sqlalchemy import create_engine
 import numpy as np
@@ -13,7 +13,7 @@ class FeatureExtraction(object):
 
     def __init__(self, database):
 
-        self.db = Database(database)
+        self.db = DataExtraction(database)
         self.matches = self.db.get_matches()
         self.unfiltered_matches = self.db.get_unfiltered_matches()
         self.unfiltered_tournaments = self.db.get_unfiltered_tournaments()

@@ -3,7 +3,7 @@ import pandas as pd
 import time
 
 
-class Database(object):
+class DataExtraction(object):
     def __init__(self, database):
         self.conn = sqlite3.connect(database)
         start_time = time.time()
