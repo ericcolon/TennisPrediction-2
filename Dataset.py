@@ -116,6 +116,16 @@ def tune_sgd_hyperparameters(x_train, y_train, x_dev, y_dev):
     plt.show()
 
 
+def scale_features_for_predictions(features, standard_deviations):
+    features = features[~np.all(features == 0, axis=1)]
+    h2h_pred = features[:, features.shape[1] - 1]
+    features_shortened = np.delete(features, np.s_[-1], 1)
+    features_scaled = features_shortened / standard_deviations[None, :]
+    features_final = np.column_stack(
+        (features_scaled, h2h_pred))  # Add H2H statistics back to the mix
+    return features_final
+
+
 """
 def google_cloud_upload():
    storage_client = storage.Client.from_service_account_json(
@@ -438,8 +448,6 @@ class Dataset(object):
         print(data.shape)
         print(label.shape)
 
-        print("Size of our first dimension is {}.".format(np.size(data, 0)))
-        print("Size of our second dimension is {}.".format(np.size(data, 1)))
         x = data[::-1]
         y = label[::-1]
         number_of_columns = x.shape[1] - 1
@@ -454,13 +462,14 @@ class Dataset(object):
 
         # Center to the mean and component wise scale to unit variance.
         x_scaled = preprocessing.scale(x_shortened, with_mean=False)
-
-        x_scaled = np.column_stack((x_scaled, h2h))  # Add H2H statistics back to the mix
+        "Uncommented this line for taking out h2h feature"
+        #  x_scaled = np.column_stack((x_scaled, h2h))  # Add H2H statistics back to the mix
 
         # We need to get rid of the duplicate values in our dataset. (Around 600 dups. Will check it later)
         x_scaled_no_duplicates, indices = np.unique(x_scaled, axis=0, return_index=True)
         y_no_duplicates = y[indices]
-
+        print("Size of our first dimension is {}.".format(np.size(x_scaled_no_duplicates, 0)))
+        print("Size of our second dimension is {}.".format(np.size(x_scaled_no_duplicates, 1)))
         print("The number of UNIQUE features in our feature space is {}".format(len(x_scaled_no_duplicates)))
         print("New label set size must be {}.".format(len(y_no_duplicates)))
 
@@ -486,7 +495,7 @@ class Dataset(object):
 
             assert len(x_train) + len(x_dev) + len(x_test) == len(x_scaled_no_duplicates)
 
-            self.create_100_decision_stumps(x_train, y_train, x_scaled_no_duplicates, 0.5, prediction_mode=False)
+            self.create_100_decision_stumps(x_train, y_train, x_scaled_no_duplicates, 0.5)
             new_set = self.create_new_vector_label_dataset(self.old_feature_to_new_feature_dictionary)
             print("Length of old_feature_to_new_feature_dictionary is {},".format(
                 len(self.old_feature_to_new_feature_dictionary)))
@@ -538,15 +547,10 @@ class Dataset(object):
                 [np.asarray(feature) for feature in index_games_dict_for_prediction.values()])
 
             # Scale the features with the standard deviations of our dataset.
-            features_from_prediction = features_from_prediction[~np.all(features_from_prediction == 0, axis=1)]
-            h2h_pred = features_from_prediction[:, features_from_prediction.shape[1] - 1]
-            features_from_prediction_shortened = np.delete(features_from_prediction, np.s_[-1], 1)
-            features_from_prediction_scaled = features_from_prediction_shortened / standard_deviations[None, :]
-            print(h2h_pred.shape)
-            print(features_from_prediction_scaled.shape)
-            features_from_prediction_final = np.column_stack(
-                (features_from_prediction_scaled, h2h_pred))  # Add H2H statistics back to the mix
-            print(features_from_prediction_final)
+            features_from_prediction_final = scale_features_for_predictions(features_from_prediction,
+                                                                            standard_deviations)
+
+            # Start creating the new feature space
             self.create_100_decision_stumps_include_predictions(x_scaled_no_duplicates, y_no_duplicates,
                                                                 x_scaled_no_duplicates, 0.5,
                                                                 features_from_prediction_final)
@@ -575,22 +579,17 @@ class Dataset(object):
                 print("Prediction for match .... was {}.".format(
                     linear_clf.predict(np.asarray(new_test_vector).reshape(1, -1))))
 
-
-
-
         else:
-            # We want to train our model and test its training and testing accuracy
 
+            # We want to train our model and test its training and testing accuracy
             x_train, x_test, y_train, y_test = train_test_split(x_scaled_no_duplicates, y_no_duplicates, test_size=0.2,
                                                                 shuffle=False)
-
             print("Size of the training set is: {}.".format((len(x_train))))
-
             print("Size of the test set is: {}.".format((len(x_test))))
 
             assert len(x_train) + len(x_test) == len(x_scaled_no_duplicates)
 
-            self.create_100_decision_stumps(x_train, y_train, x_scaled_no_duplicates, 0.5, prediction_mode=False)
+            self.create_100_decision_stumps(x_train, y_train, x_scaled_no_duplicates, 0.5)
             new_set = self.create_new_vector_label_dataset(self.old_feature_to_new_feature_dictionary)
             print("Length of old_feature_to_new_feature_dictionary is {},".format(
                 len(self.old_feature_to_new_feature_dictionary)))
@@ -598,27 +597,22 @@ class Dataset(object):
             # these are the new feature and label set we will training SGD Classifier
             decision_stump_features = new_set[0]
             decision_stump_labels = new_set[1]
-            print(decision_stump_features.shape)
-            print(decision_stump_labels.shape)
 
             # creating 100 1d vectors from our test dataset
             test_data = np.asarray([self.old_feature_to_new_feature_dictionary[tuple(x)] for x in x_test])
             test_label = np.asarray([self.old_feature_label_dict[tuple(x)] for x in x_test])
 
-            print(test_data.shape)
-            print(test_label.shape)
             linear_clf = SGDClassifier(loss="hinge", eta0=0.0001)  # create the tuned classifier
             start_time = time.time()
-            print("Time took to train SVC model was  --- {} seconds ---".format(time.time() - start_time))
+            print("Time took to train Linear SGD Classifier was  --- {} seconds ---".format(time.time() - start_time))
             linear_clf.fit(decision_stump_features, decision_stump_labels)
 
-            print("Linear SGD classifier testing accuracy {}.".format(linear_clf.score(test_data, test_label)))
             print("Linear SGD classifier training accuracy {}.".format(
                 linear_clf.score(decision_stump_features, decision_stump_labels)))
-            print("Time took to train SVC model was  --- {} seconds ---".format(time.time() - start_time))
+            print("Linear SGD classifier testing accuracy {}.".format(linear_clf.score(test_data, test_label)))
 
             if save:
-                joblib.dump(linear_clf, 'DT_Model_1.pkl')
+                joblib.dump(linear_clf, 'DT_Model_2_no_h2h.pkl')
 
     def create_100_decision_stumps_include_predictions(self, x, y, whole_training_set, test_size, predictions):
         for i in range(100):
@@ -645,7 +639,7 @@ class Dataset(object):
             print("Time took to train decision stump number {} and make predictions was --- {} seconds ---".format(i,
                                                                                                                    time.time() - start_time))
 
-    def create_100_decision_stumps(self, x, y, whole_training_set, test_size, prediction_mode):
+    def create_100_decision_stumps(self, x, y, whole_training_set, test_size):
         # Now we create and train 100 Decision Stumps.
         # Then predict label of each data point in four fold files (560 data points) and store them in a {vector: label list} dictionary
         for i in range(100):
@@ -986,8 +980,8 @@ DT = Dataset("updated_stats_v2")
 
 # To create an SVM Model
 # DT.train_and_test_svm_model("svm_model_tpw_no_h2h.pkl", 'data_tpw_h2h.txt', 'label_tpw_h2h.txt', True, 0.2)
-DT.train_decision_stump_model('data_tpw_h2h.txt', 'label_tpw_h2h.txt', development_mode=False, prediction_mode=True,
-                              save=False)
+DT.train_decision_stump_model('data_tpw_h2h.txt', 'label_tpw_h2h.txt', development_mode=False, prediction_mode=False,
+                              save=True)
 # To test the model
 # test_model("svm_model_v4_h2h.pkl", "data_with_h2h.txt", "label_with_h2h.txt", 0.2)
 # test_model("svm_model_v3.pkl", "data_v3.txt", "label_v3.txt", 0.2)
@@ -1044,3 +1038,18 @@ for p1, p2 in zip(p1_list, p2_list):
     visualizer.fit(train_X, train_Y)  # Fit the visualizer and the model
     visualizer.score(test_X, test_Y)  # Evaluate the model on the test data
     g = visualizer.poof()  # Draw/show/poof the data"""
+
+# Wimbledon Round 2
+p1_list = [19, 655, 7806, 961, 4061, 2123, 678, 791, 6101, 18094, 20193, 9831, 5837, 10995, 30470, 4454, 4009, 650,
+           20847, 6458, 22434, 11522, 13447, 29932, 6465, 12043, 29812, 1113, 17829, 3833, 39309, 9043]
+p2_list = [5127, 14177, 12661, 22807, 1266, 5917, 685, 7459, 9471, 27482, 2706, 11704, 9840, 10828, 26923, 1092, 25543,
+           29939, 11003, 5992, 6081, 8806, 6848, 24008, 468, 33502, 4010, 9521, 18017, 4067, 14727, 677]
+results = [1, 0, 1, 0, 1, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 1, 0, 0, 1, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 0]
+assert len(p1_list) == len(p2_list) == len(results)
+for p1, p2 in zip(p1_list, p2_list):
+    DT.make_predictions_using_DT(p1, p2, 5, 15300)
+
+# Wimbledon Round 3
+p1_list = [19, 7806, 4061, 678, 9471, 2706, 5837, 30470, 25543, 20847, 22434, 6848, 6465, 4010, 18017, 39309]
+p2_list = [14177, 22807, 5917, 7459, 18094, 11704, 10828, 4454, 29939, 5992, 8806, 24008, 12043, 9521, 4067, 677]
+results = [1, 1, 0, 0, 0, 0, 1, 1, 1, 0, 0, 1, 1, 1, 1, 0]
