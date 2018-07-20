@@ -3,10 +3,45 @@ import time
 from sqlalchemy import create_engine
 import numpy as np
 
+from bs4 import BeautifulSoup
+import urllib.request
+from urllib.request import urlopen
+
 
 def df2sqlite_v2(dataframe, db_name):
     disk_engine = create_engine('sqlite:///' + db_name + '.db')
     dataframe.to_sql(db_name, disk_engine, if_exists='append')
+
+
+def historical_odds_database(csv_file):
+    dataframe = pd.read_csv(csv_file, low_memory=False)
+    print("Dataframe conversion finished. Converting it into sqlite3 database")
+    df2sqlite_v2(dataframe, "odds")
+    print("process finished")
+
+def url_is_alive(url):
+    """Checks that a given URL is reachable."""
+    request = urllib.request.Request(url)
+    request.get_method = lambda: 'HEAD'
+
+    try:
+        urllib.request.urlopen(request)
+        return True
+    except urllib.request.HTTPError:
+        return False
+
+
+def odds_checker(url):
+    if url_is_alive(url):
+        odds_page = urlopen(url)
+        content = odds_page.read()  # get content from webpage
+        page_soup = BeautifulSoup(content, 'html.parser')
+        cont = page_soup.find('div', class_='table-container')
+        active_rows = page_soup.find_all('tr', style='display: table-row;')
+        print(active_rows)
+        print(cont)
+        # soup = BeautifulSoup(content, 'lxml')
+        # print(soup)
 
 
 class FeatureExtraction(object):
@@ -531,3 +566,7 @@ means_and_stds = feature_extraction.create_surface_matrix()
 print(means_and_stds)
 feature_extraction.calculate_surface_matrix(*means_and_stds)
 """
+
+# historical_odds_database("world_tennis_odds.csv")
+odds_checker("http://www.oddsportal.com/tennis/united-kingdom/atp-wimbledon/results/")
+historical_odds_database("world_tennis_odds.csv")
