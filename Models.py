@@ -14,7 +14,12 @@ from sklearn.linear_model import SGDClassifier
 from sklearn.model_selection import train_test_split
 from sqlalchemy import create_engine
 
+
 from DataExtraction import *
+
+# Historical odds database ??
+
+
 
 
 # Methods to convert pandas dataframe into sqlite3 database
@@ -156,6 +161,8 @@ def preprocess_features_before_training(features, labels):
     return [x_scaled_no_duplicates, y_no_duplicates, standard_deviations]
 
 
+
+
 """
 def google_cloud_upload():
    storage_client = storage.Client.from_service_account_json(
@@ -173,6 +180,9 @@ def google_cloud_upload():
     print('File {} uploaded to {}.'.format(
         source_file_name,
         bucket))"""
+
+
+
 
 
 class Models(object):
@@ -471,7 +481,8 @@ class Models(object):
         if (dump):
             joblib.dump(clf, model_name)
 
-    def train_decision_stump_model(self, dataset_name, labelset_name, development_mode, prediction_mode, save):
+    def train_decision_stump_model(self, dataset_name, labelset_name, development_mode, prediction_mode,
+                                   test_given_model, save):
 
         pickle_in = open(dataset_name, "rb")
         features = np.asarray(pickle.load(pickle_in))
@@ -581,8 +592,11 @@ class Models(object):
             print("Length of old_feature_to_new_feature_dictionary is {},".format(
                 len(self.old_feature_to_new_feature_dictionary)))
 
-            linear_clf = SGDClassifier(loss="hinge", eta0=0.0001)  # create the tuned classifier
-            linear_clf.fit(decision_stump_features, decision_stump_labels)
+            if test_given_model:
+                linear_clf = joblib.load("DT_Model_3.pkl")
+            else:
+                linear_clf = SGDClassifier(loss="hinge", eta0=0.0001)  # create the tuned classifier
+                linear_clf.fit(decision_stump_features, decision_stump_labels)
 
             print("Linear SGD classifier training accuracy {}.".format(
                 linear_clf.score(decision_stump_features, decision_stump_labels)))
@@ -985,28 +999,32 @@ class Models(object):
             return
 
 
-DT = Models("updated_stats_v2")
+#DT = Models("updated_stats_v2")  # Initalize the model class with our sqlite3 advanced stats database
 
 # To create the feature and label space
 # data_label = DT.create_feature_set('data_tpw_h2h.txt', 'label_tpw_h2h.txt')
 # print(len(data_label[0]))
 # print(len(data_label[1]))
 
+
 # To create an SVM Model
 # DT.train_and_test_svm_model("svm_model_tpw_no_h2h.pkl", 'data_tpw_h2h.txt', 'label_tpw_h2h.txt', True, 0.2)
-DT.train_decision_stump_model('data_tpw_h2h.txt', 'label_tpw_h2h.txt', development_mode=False, prediction_mode=True,
-                              save=True)
 # To test the model
 # test_model("svm_model_v4_h2h.pkl", "data_with_h2h.txt", "label_with_h2h.txt", 0.2)
 # test_model("svm_model_v3.pkl", "data_v3.txt", "label_v3.txt", 0.2)
 
 
-"""  clf_1 = svm.NuSVC()
-    visualizer = ClassificationReport(clf_1)
-    visualizer.fit(train_X, train_Y)  # Fit the visualizer and the model
-    visualizer.score(test_X, test_Y)  # Evaluate the model on the test data
-    g = visualizer.poof()  # Draw/show/poof the data"""
+# To train and make predictions on Decision Stump Model
 """
+DT.train_decision_stump_model('data_tpw_h2h.txt', 'label_tpw_h2h.txt', development_mode=False, prediction_mode=True,
+                              save=False, test_given_model=False)
+
+# To train a model
+DT.train_decision_stump_model('data_tpw_h2h.txt', 'label_tpw_h2h.txt', development_mode=False, prediction_mode=False,
+                              save=False, test_given_model=False)
+
+
+
 # Wimbledon Round 2
  p1_list = [19, 655, 7806, 961, 4061, 2123, 678, 791, 6101, 18094, 9831, 5837, 10995, 30470, 4454,
                        4009, 650,
@@ -1017,8 +1035,7 @@ p2_list = [5127, 14177, 12661, 22807, 1266, 5917, 685, 7459, 9471, 27482, 11704,
 results = [1, 0, 1, 0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 1, 1, 0, 0, 1, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 0]
 The players 20193 and 2706 do not have enough common opponents to make predictions. Novak vs Pouille 
 assert len(p1_list) == len(p2_list) == len(results)
-"""
-"""
+
 # Wimbledon Round 3
 p1_list = [19, 7806, 4061, 678, 9471, 2706, 5837, 30470, 25543, 20847, 22434, 6848, 6465, 4010, 18017, 39309]
 p2_list = [14177, 22807, 5917, 7459, 18094, 11704, 10828, 4454, 29939, 5992, 8806, 24008, 12043, 9521, 4067, 677]
