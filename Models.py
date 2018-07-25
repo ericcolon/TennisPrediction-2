@@ -3,7 +3,6 @@ import pickle
 import statistics as s
 from collections import defaultdict
 from random import random
-
 import matplotlib.pyplot as plt
 import numpy as np
 from sklearn import preprocessing
@@ -13,14 +12,7 @@ from sklearn.externals import joblib
 from sklearn.linear_model import SGDClassifier
 from sklearn.model_selection import train_test_split
 from sqlalchemy import create_engine
-
-
 from DataExtraction import *
-
-# Historical odds database ??
-
-
-
 
 # Methods to convert pandas dataframe into sqlite3 database
 def df2sqlite(dataframe, db_name="import.sqlite", tbl_name="import"):
@@ -39,7 +31,6 @@ def df2sqlite(dataframe, db_name="import.sqlite", tbl_name="import"):
 
     conn.commit()
     conn.close()
-
 
 def df2sqlite_v2(dataframe, db_name):
     disk_engine = create_engine('sqlite:///' + db_name + '.db')
@@ -161,8 +152,6 @@ def preprocess_features_before_training(features, labels):
     return [x_scaled_no_duplicates, y_no_duplicates, standard_deviations]
 
 
-
-
 """
 def google_cloud_upload():
    storage_client = storage.Client.from_service_account_json(
@@ -180,9 +169,6 @@ def google_cloud_upload():
     print('File {} uploaded to {}.'.format(
         source_file_name,
         bucket))"""
-
-
-
 
 
 class Models(object):
@@ -561,7 +547,7 @@ class Models(object):
                        1, 1, 0, 0, 0, 0, 1, 1, 1, 0, 0, 1, 1, 1, 1, 0, 1, 0, 0, 1, 0, 1, 1, 0]
 
             assert len(p1_list) == len(p2_list) == len(results)
-            # DONT FORGET: IF PLAYERS DO NOT HAVE COMMON OPPONENTS, YOU HAVE TO DELETE THAT RESULT FROM THE SET. PLAYERS AS WELL
+            # DONT FORGET: IF PLAYERS DO NOT HAVE COMMON OPPONENTS, YOU HAVE TO DELETE THAT ENTRY FROM THE SETS
 
             del p1_list[36]
             del p2_list[36]
@@ -999,7 +985,7 @@ class Models(object):
             return
 
 
-#DT = Models("updated_stats_v2")  # Initalize the model class with our sqlite3 advanced stats database
+# DT = Models("updated_stats_v2")  # Initalize the model class with our sqlite3 advanced stats database
 
 # To create the feature and label space
 # data_label = DT.create_feature_set('data_tpw_h2h.txt', 'label_tpw_h2h.txt')
