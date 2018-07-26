@@ -1,6 +1,6 @@
 import pandas as pd
 import time
-
+import os
 # Sqlite3 - Panda converter library
 from sqlalchemy import create_engine
 # County ISO3 code converter
@@ -12,7 +12,6 @@ from bs4 import BeautifulSoup
 
 # Requests
 import urllib.request
-from urllib.request import urlopen
 
 # Selenium inports
 from selenium import webdriver
@@ -20,7 +19,6 @@ from selenium.webdriver.support.wait import WebDriverWait
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.keys import Keys
-
 
 
 def df2sqlite_v2(dataframe, db_name):
@@ -34,10 +32,9 @@ def df2sqlite_v2(dataframe, db_name):
 class OddsScraper(object):
 
     def __init__(self):
-        chromedriver = '/Users/aysekozlu/PyCharmProjects/TennisModel/chromedriver'
-        self.driver = webdriver.Chrome(chromedriver)
+        pass
 
-    def odds_database_search(csv_file):
+    def odds_database_search(self, csv_file):
         dataframe = pd.read_csv(csv_file)
 
         # dataframe = pd.read_csv(csv_file, engine='c', dtype={'FULL': 'str', 'COUNT': 'int'},
@@ -104,7 +101,7 @@ class OddsScraper(object):
         dataframe.dropna(subset=['bwin_player_2_odd'], inplace=True)  # drop invalid stats (22)
         dataframe.dropna(subset=['bwin_player_1_odd'], inplace=True)  # drop invalid stats (22)
 
-    def historical_odds_database(csv_file):
+    def historical_odds_database(self, csv_file):
         dataframe = pd.read_csv(csv_file)
 
         odds_database = dataframe[
@@ -172,15 +169,16 @@ class OddsScraper(object):
         tot_urls = []
         if self.url_is_alive(url):
             print("URL IS ALIVE.")
-
+            chromedriver = '/Users/aysekozlu/PyCharmProjects/TennisModel/chromedriver'
+            driver = webdriver.Chrome(chromedriver)
             # driver = webdriver.Chrome()  # webdriver.Chrome("./chromedriver/chromedriver.exe")
-            self.driver.get(url)
-            wait_pagination = WebDriverWait(self.driver, 100).until(
+            driver.get(url)
+            wait_pagination = WebDriverWait(driver, 100).until(
                 EC.element_to_be_clickable(
                     (By.ID, 'pagination')
                 ))
 
-            soup = BeautifulSoup(self.driver.page_source, 'html.parser')
+            soup = BeautifulSoup(driver.page_source, 'html.parser')
             tot_urls.append(self.matchUrls(soup))
 
         else:
@@ -190,19 +188,37 @@ class OddsScraper(object):
 
         return flat_list
 
-    def odds_scraper_for_a_match(self, urls):
+    def odds_scraper_for_a_match(self, match_urls):
         # CLASS -TABLE CONTAINER
-        url = urls[0]
-        print(url)
-        match_url = 'http://www.oddsportal.com' + url
-        self.driver.get(match_url)
-        soup = BeautifulSoup(self.driver.page_source, 'html.parser')
-        bookie_data = self.detectBookieData(soup)
-        div = soup.find('div', {'class': 'bt-3'})
 
-        "table-main detail-odds sortable"
-        print(div)
-        # print(bookie_data)
+        chromedriver = '/Users/aysekozlu/PyCharmProjects/TennisModel/chromedriver'
+        driver = webdriver.Chrome(chromedriver)
+        i = 0
+        for url in match_urls:
+
+            match_url = 'http://www.oddsportal.com' + url
+            i = i + 1
+            driver.get(match_url)
+            soup = BeautifulSoup(driver.page_source, 'html.parser')
+            bookie_data = self.detectBookieData(soup)
+            table = bookie_data.find('table', {'class': "table-main detail-odds sortable"})
+            # print(table)
+            # row = bookie_data.find(href="/bookmaker/" + 'bwin' + "/link/").parent.parent.parent
+            # print(row)
+            # table = bt_3.find('table', {'class': 'table-main-detail-odds sortable'})
+            table_body = table.find('tbody')
+            data = []
+            rows = table_body.find_all('tr')
+            for row in rows:
+                cols = row.find_all('td')
+                cols = [ele.text.strip() for ele in cols]
+                if 'bwin' in cols:
+                    data.append([ele for ele in cols if ele])  # Get rid of empty values
+            players = url.split(os.sep)[-1]
+            data.append(players)
+
+            print(data)
+        print(i)
 
     def detectBookieData(self, soup):
         """
@@ -213,11 +229,12 @@ class OddsScraper(object):
     def historical_odds_scraper(self, url):
         if self.url_is_alive(url):
             print("URL IS ALIVE.")
-
+            chromedriver = '/Users/aysekozlu/PyCharmProjects/TennisModel/chromedriver'
+            driver = webdriver.Chrome(chromedriver)
             # driver = webdriver.Chrome()  # webdriver.Chrome("./chromedriver/chromedriver.exe")
-            self.driver.get(url)
-            print(self.driver.page_source)
-            soup = BeautifulSoup(self.driver.page_source, 'html.parser')
+            driver.get(url)
+            print(driver.page_source)
+            soup = BeautifulSoup(driver.page_source, 'html.parser')
             n, seasons = self.seasonParser(soup)
             print(n)
             print(seasons)
@@ -225,10 +242,10 @@ class OddsScraper(object):
                               for url in seasons]
             print(seasons_format[0])
 
-            self.driver.get(seasons_format[0])
+            driver.get(seasons_format[0])
             # A wait seems to be needed as the pagination loads dynamically.
             # Here, we wait up until the pagination bar can be clicked.
-            wait_pagination = WebDriverWait(self.driver, 100).until(
+            wait_pagination = WebDriverWait(driver, 100).until(
                 EC.element_to_be_clickable(
                     (By.ID, 'pagination')
                 ))
@@ -243,23 +260,24 @@ class OddsScraper(object):
 
                 if i is 1:
                     # Nothing to click on, the page is displayed
-                    soup = BeautifulSoup(self.driver.page_source, 'html.parser')
+                    soup = BeautifulSoup(driver.page_source, 'html.parser')
                     tot_urls.append(self.matchUrls(soup))
 
                 else:
-                    next_page = self.driver.find_element_by_link_text(str(i))
+                    next_page = driver.find_element_by_link_text(str(i))
                     next_page.send_keys(Keys.ENTER)
 
                     # Waiting for the pagination is as waiting for the table
-                    wait_pagination = WebDriverWait(self.driver, 100).until(
+                    wait_pagination = WebDriverWait(driver, 100).until(
                         EC.element_to_be_clickable(
                             (By.ID, 'pagination')
                         ))
-                    soup = BeautifulSoup(self.driver.page_source, 'html.parser')
+                    soup = BeautifulSoup(driver.page_source, 'html.parser')
                     tot_urls.append(self.matchUrls(soup))
 
             return tot_urls
 
+    # Function gets all the seasons of a single tournament
     def seasonParser(self, soup):
         """
         Parameter:
@@ -272,6 +290,24 @@ class OddsScraper(object):
         seasons_links = [li.a['href'] for li in seasons_box.find_all('li')][1:]  # We don't take the first season
         return n_seasons, seasons_links
 
+    # This function parses the archived result page of the Odds Portal website.
+
+    def archivedResults(self, page_source):
+        """
+        This function parses the archived result page of the Odds Portal website.
+        """
+        table_soup = BeautifulSoup(page_source, 'html.parser').find('div', id='col-content').find('table')
+        tournaments_list = []
+
+        # Looking for all the anchoring tags. Grab their name and url.
+        for a_tag in table_soup.find_all('a', foo='f'):
+            dict_tournament = {'name': '', 'url': '', }
+            dict_tournament['name'], dict_tournament['url'] = a_tag.get_text(), 'http://www.oddsportal.com' + a_tag[
+                'href']
+            tournaments_list.append(dict_tournament)
+
+        return tournaments_list
+
 
 odds_scraper = OddsScraper()
 """tot_urls = odds_scraper.historical_odds_scraper("http://www.oddsportal.com/tennis/united-kingdom/atp-wimbledon/results/")
@@ -283,10 +319,22 @@ print(flatten_urls_list)
 """
 
 urls = odds_scraper.tournament_odds_scraper("http://www.oddsportal.com/tennis/united-kingdom/atp-wimbledon/results/")
-print(urls)
+
 odds_scraper.odds_scraper_for_a_match(urls)
 
 # odds_scraper.odds_database_search("world_tennis_odds.csv")
 
 # Run this line to create the odds database
 # odds_scraper.historical_odds_database("world_tennis_odds.csv")
+
+
+# Archived results page
+"""
+chromedriver = '/Users/aysekozlu/PyCharmProjects/TennisModel/chromedriver'
+driver = webdriver.Chrome(chromedriver)
+driver.get('http://www.oddsportal.com/tennis/results/')
+wait = WebDriverWait(driver, 10).until(EC.visibility_of_element_located((By.CSS_SELECTOR, "table.table-main.sport")))
+tournaments_list = odds_scraper.archivedResults(driver.page_source)
+driver.quit()
+
+"""

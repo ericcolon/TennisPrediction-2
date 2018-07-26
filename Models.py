@@ -186,7 +186,7 @@ def google_cloud_upload():
 class Models(object):
 
     # TODO try gradient boosted regression trees. link: https://www.youtube.com/watch?v=IXZKgIsZRm0&t=892s
-    # TODO XGBOOST, multi layered neural network
+    # TODO XGBOOST, multi layered neural network - trying to do AdaBoost gradient as well
 
     def __init__(self, database_name):
 
@@ -1025,7 +1025,7 @@ class Models(object):
             return
 
 
-# DT = Models("updated_stats_v2")  # Initalize the model class with our sqlite3 advanced stats database
+DT = Models("updated_stats_v2")  # Initalize the model class with our sqlite3 advanced stats database
 
 # To create the feature and label space
 # data_label = DT.create_feature_set('data_tpw_h2h.txt', 'label_tpw_h2h.txt')
@@ -1039,6 +1039,8 @@ class Models(object):
 # test_model("svm_model_v4_h2h.pkl", "data_with_h2h.txt", "label_with_h2h.txt", 0.2)
 # test_model("svm_model_v3.pkl", "data_v3.txt", "label_v3.txt", 0.2)
 
+# To train an AdaBoost Classifier
+DT.train_adaboost_classifier('data_tpw_h2h.txt', 'label_tpw_h2h.txt',adaboost = True)
 
 # To train and make predictions on Decision Stump Model
 """
@@ -1048,7 +1050,6 @@ DT.train_decision_stump_model('data_tpw_h2h.txt', 'label_tpw_h2h.txt', developme
 # To train a model
 DT.train_decision_stump_model('data_tpw_h2h.txt', 'label_tpw_h2h.txt', development_mode=False, prediction_mode=False,
                               save=False, test_given_model=False)
-
 
 
 # Wimbledon Round 2
