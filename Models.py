@@ -3,23 +3,26 @@ import pickle
 import statistics as s
 from collections import defaultdict
 from random import random
-
 import matplotlib.pyplot as plt
 import numpy as np
+# Sklearn imports
 from sklearn import preprocessing
 from sklearn import svm
 from sklearn import tree
 from sklearn.externals import joblib
 from sklearn.linear_model import SGDClassifier
+from sklearn.ensemble import AdaBoostClassifier  # For Classification
+from sklearn.ensemble import GradientBoostingClassifier  # For Classification
+from sklearn.ensemble import AdaBoostRegressor  # For Regression
+from sklearn.tree import DecisionTreeClassifier
 from sklearn.model_selection import train_test_split
-from sqlalchemy import create_engine
 
+# Sqlalchemy and picke
+from sqlalchemy import create_engine
+import pickle
+# Imports from other classes
 
 from DataExtraction import *
-
-# Historical odds database ??
-
-
 
 
 # Methods to convert pandas dataframe into sqlite3 database
@@ -161,8 +164,6 @@ def preprocess_features_before_training(features, labels):
     return [x_scaled_no_duplicates, y_no_duplicates, standard_deviations]
 
 
-
-
 """
 def google_cloud_upload():
    storage_client = storage.Client.from_service_account_json(
@@ -180,9 +181,6 @@ def google_cloud_upload():
     print('File {} uploaded to {}.'.format(
         source_file_name,
         bucket))"""
-
-
-
 
 
 class Models(object):
@@ -481,6 +479,34 @@ class Models(object):
         if (dump):
             joblib.dump(clf, model_name)
 
+    def train_adaboost_classifier(self, dataset_name, labelset_name, adaboost):
+        pickle_in = open(dataset_name, "rb")
+        features = np.asarray(pickle.load(pickle_in))
+        pickle_in_2 = open(labelset_name, "rb")
+        labels = np.asarray(pickle.load(pickle_in_2))
+        # Preprocess the feature and label space
+        x_scaled_no_duplicates, y_no_duplicates, standard_deviations = preprocess_features_before_training(features,
+                                                                                                           labels)
+
+        x_train, x_test, y_train, y_test = train_test_split(x_scaled_no_duplicates, y_no_duplicates, test_size=0.2,
+                                                            shuffle=False)
+        print("Size of our first dimension is {}.".format(np.size(x_scaled_no_duplicates, 0)))
+        print("Size of our second dimension is {}.".format(np.size(x_scaled_no_duplicates, 1)))
+        print("The number of UNIQUE features in our feature space is {}".format(len(x_scaled_no_duplicates)))
+        print("New label set size must be {}.".format(len(y_no_duplicates)))
+        sgd = SGDClassifier(loss="hinge", eta0=0.0001)  # create the tuned classifier
+
+        dt = DecisionTreeClassifier()
+        if adaboost:
+            clf = AdaBoostClassifier(n_estimators=100, base_estimator=sgd, learning_rate=1)
+        else:
+            clf = GradientBoostingClassifier(n_estimators=100, learning_rate=1.0, max_depth=1)
+        # Above I have used decision tree as a base estimator, you can use any ML learner as base estimator if it ac# cepts sample weight
+        clf.fit(x_train, y_train)
+
+        print("AdaBoost classifier training accuracy {}.".format(clf.score(x_train, y_train)))
+        print("AdaBoost classifier testing accuracy {}.".format(clf.score(x_test, y_test)))
+
     def train_decision_stump_model(self, dataset_name, labelset_name, development_mode, prediction_mode,
                                    test_given_model, save):
 
@@ -561,7 +587,7 @@ class Models(object):
                        1, 1, 0, 0, 0, 0, 1, 1, 1, 0, 0, 1, 1, 1, 1, 0, 1, 0, 0, 1, 0, 1, 1, 0]
 
             assert len(p1_list) == len(p2_list) == len(results)
-            # DONT FORGET: IF PLAYERS DO NOT HAVE COMMON OPPONENTS, YOU HAVE TO DELETE THAT RESULT FROM THE SET. PLAYERS AS WELL
+            # DONT FORGET: IF PLAYERS DO NOT HAVE COMMON OPPONENTS, YOU HAVE TO DELETE THAT ENTRY FROM THE SETS
 
             del p1_list[36]
             del p2_list[36]
@@ -999,7 +1025,7 @@ class Models(object):
             return
 
 
-#DT = Models("updated_stats_v2")  # Initalize the model class with our sqlite3 advanced stats database
+# DT = Models("updated_stats_v2")  # Initalize the model class with our sqlite3 advanced stats database
 
 # To create the feature and label space
 # data_label = DT.create_feature_set('data_tpw_h2h.txt', 'label_tpw_h2h.txt')

@@ -3,7 +3,7 @@ import os
 import subprocess
 import sys
 
-MDB = "/Users/aysekozlu/desktop/T-Database/OnCourt.mdb"
+MDB = "/Users/aysekozlu/desktop/T-Database/OnCourt.mdb" # This is local. Change this to os.getpath 
 
 # Dump the schema for the DB
 subprocess.call(["mdb-schema", MDB, "mysql"])
