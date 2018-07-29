@@ -216,8 +216,43 @@ class OddsScraper(object):
             print("URL IS NOT VALID.")
 
         flat_list = [item for sublist in tot_urls for item in sublist]
-        print("Number of matches: {} for tournament {}.".format(len(flat_list), url.split(os.sep)[-2]))
+        print("Number of matches: {}. For tournament {}.".format(len(flat_list), url.split(os.sep)[-3]))
         return flat_list
+
+    def player_names_test(self):
+
+        names = ['del potro', 'corrino-burata', 'potro corrino-burata']
+        reverse = [['del', 'potro', 'rafael', 'nadal'], ['corrino', 'burata', 'rafael', 'nadal'],
+                   ['potro', 'corrino', 'burata', 'rafael', 'nadal']]
+        i = 0
+        player2 = 'guillermo garcia-lopez'
+        player1 = 'daniil medyedev'
+
+        for player_names_in_reverse in reverse:
+
+            player2_last_name = player2.split()[:-1]  # De Minaur R. --> De Minaur
+            player1_last_name_list = player1.split()[:-1]
+            # print("Last name of second player is: {}.".format(player2_last_name))
+            # print("Last name of first player is: {}".format(player1_last_name_list))
+            if '-' in player2_last_name[0]:  # if last name is corrina-burata, then corrina,burata
+                player2_last_name = player2_last_name[0].split('-')
+
+            player_2_last_name_index = player_names_in_reverse.index(player2_last_name[0])
+            player_2_name_reverse = player_names_in_reverse[player_2_last_name_index:]
+            player_2_first_name_index = player_2_name_reverse.index(player2_last_name[-1])
+            player_2_first_name = player_2_name_reverse[player_2_first_name_index + 1:]
+
+            player1_last_name_index = player_names_in_reverse.index(player1_last_name_list[-1])
+            player1_last_name = player_names_in_reverse[:player1_last_name_index + 1]
+            player1_first_name = player_names_in_reverse[player1_last_name_index + 1:player_2_last_name_index:1]
+
+            print("Fist name of player 1 is {}:".format(player1_first_name))
+            print("Last name of player 1 is {}:".format(player1_last_name))
+            print("First name of second player: {}".format(player_2_first_name))  # de minaur alex
+            print("Last name of second player is: {}.".format(player2_last_name))
+
+            print("Player 1 name is {}".format(str.join(' ', (player1_first_name + player1_last_name))))
+            print('Player 2s name is {}'.format(str.join(' ', player_2_first_name + player2_last_name)))
 
     # Scrape the odds and player info from a match url
     def odds_scraper_for_a_match(self, match_urls):
@@ -249,39 +284,42 @@ class OddsScraper(object):
                 # Here we start a list of operations to get player names correctly.
                 player_url = url.strip().split(os.sep)[-2]
                 player_names_in_reverse = player_url.split('-')[:-1]  # get names from the url (they are in reverse)
+
                 print("These are player names I got from url {}".format(player_names_in_reverse))
                 content = soup.find('div', id='col-content')
-                # Get rid of the span tag.
                 content.span.extract()
-                # Basic match info.
+
                 player1, player2 = content.h1.get_text().lower().split(
                     ' - ')  # These names are in format Djokovic N.-Nadal R.
+                print("Player 1 name got from the oddsportal website: {}".format(player1))
+                print("Player 2 name got from the oddsportal website: {}".format(player2))
 
-                player2_last_name = player2.split()[:-1]
-                print("Last name of second player {}.".format(player2_last_name))  # de minaur
-                player2_last_name = ['corrina-busta']
+                player2_last_name = player2.split()[:-1]  # De Minaur R. --> De Minaur
+                player1_last_name_list = player1.split()[:-1]
+                # print("Last name of second player is: {}.".format(player2_last_name))
+                # print("Last name of first player is: {}".format(player1_last_name_list))
+                if '-' in player2_last_name[0]:  # if last name is corrina-burata, then corrina,burata
+                    player2_last_name = player2_last_name[0].split('-')
 
-                for i in range(len(player2_last_name)):
-
-                    el = player2_last_name[i]
-                    if '-' in el:
-
-                        el = el.split('-')
-
-                    print(player2_last_name)
-
-                print("Length of player 2's last name is {}.".format(len(player2_last_name)))
+                if '-' in player1_last_name_list[0]:  # if last name is corrina-burata, then corrina,burata
+                    player1_last_name_list = player1_last_name_list[0].split('-')
 
                 player_2_last_name_index = player_names_in_reverse.index(player2_last_name[0])
                 player_2_name_reverse = player_names_in_reverse[player_2_last_name_index:]
-
-                print("Player 2 name in reverse: {}".format(player_2_name_reverse))  # de minaur alex
-
                 player_2_first_name_index = player_2_name_reverse.index(player2_last_name[-1])
-                player_2_first_name = player_names_in_reverse[player_2_first_name_index:]
+                player_2_first_name = player_2_name_reverse[player_2_first_name_index + 1:]
 
-                print("First Name of second player: {}".format(player_2_first_name))  # de minaur alex
+                player1_last_name_index = player_names_in_reverse.index(player1_last_name_list[-1])
+                player1_last_name = player_names_in_reverse[:player1_last_name_index + 1]
+                player1_first_name = player_names_in_reverse[player1_last_name_index + 1:player_2_last_name_index:1]
 
+                print("Fist name of player 1 is {}:".format(player1_first_name))
+                print("Last name of player 1 is {}:".format(player1_last_name))
+                print("First name of second player: {}".format(player_2_first_name))  # de minaur alex
+                print("Last name of second player is: {}.".format(player2_last_name))
+
+                print("Player 1 name is {}".format(str.join(' ', (player1_first_name + player1_last_name))))
+                print('Player 2s name is {}'.format(str.join(' ', player_2_first_name + player2_last_name)))
                 data.append(player_names_in_reverse)
                 odds_and_players = [item for sublist in data for item in sublist]
                 # print(odds_and_players)  # This list includes odds + player names
@@ -387,7 +425,7 @@ tot_urls = odds_scraper.historical_odds_for_tournament_scraper(
 flatten_urls_list = [url for l in tot_urls for url in l]
 print(len(flatten_urls_list))
 """
-
+# odds_scraper.player_names_test()
 urls = odds_scraper.tournament_odds_scraper("http://www.oddsportal.com/tennis/united-kingdom/atp-wimbledon/results/")
 print(len(urls))
 odds_scraper.odds_scraper_for_a_match(urls)
