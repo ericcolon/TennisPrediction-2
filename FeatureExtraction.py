@@ -1,9 +1,10 @@
-from DataExtraction import *
 import time
-import numpy as np
 
+import numpy as np
 # Sqlite3 - Panda converter library
 from sqlalchemy import create_engine
+
+from DataExtraction import *
 
 
 # Methods to convert pandas dataframe into sqlite3 database
@@ -43,7 +44,7 @@ class FeatureExtraction(object):
         self.tournaments = self.db.get_tournaments()
         self.player_surface_dict = {}
 
-    # For Time discount factor purposes
+    # Create a player database from our panda ATP players dataframe
 
     def create_results(self, table):
 
@@ -326,6 +327,15 @@ class FeatureExtraction(object):
         final_dataset = table.reset_index(drop=True)  # reset indexes if any more rows are dropped
         return final_dataset
 
+    def extract_players(self):
+
+        self.players['NAME_P'] = [word.replace('-', ' ').lower().strip() for word in self.players['NAME_P']]
+        for name in self.players['NAME_P']:  # Making sure doubles, player with dashes in their name not in our database
+            assert '-' not in name and '/' not in name
+
+        df2sqlite_v2(self.players, "atp_players")
+        print("Player sqlite database successfully created")
+
     def get_filtered_matches(self):
         return self.matches
 
@@ -532,7 +542,8 @@ def create_surface_matrix(self):
 
 """
 """ 
-# Code to create the Sqlite stats database with all the required information to create features
+# RUN THIS CODE  
+#Code to create the Sqlite stats database with all the required information to create features
 feature_extraction = FeatureExtraction("db.sqlite")
 new_stats = feature_extraction.create_new_stats()
 new_stats_v1 = feature_extraction.create_results(new_stats)
@@ -545,13 +556,15 @@ print(new_stats_v2.info())
 print(new_stats_v3.info())
 print(new_stats_v4.info())
 df2sqlite_v2(new_stats_v4, 'updated_stats_v2')
+feature_extraction.extract_players()
 """
+# RUN THIS CODE to extract player sqlite3 database
+
+# feature_extraction.extract_players()
+
 """ This code is to create and calculate a surface matrix 
 
 means_and_stds = feature_extraction.create_surface_matrix()
 print(means_and_stds)
 feature_extraction.calculate_surface_matrix(*means_and_stds)
 """
-
-
-

@@ -1,24 +1,22 @@
-import pandas as pd
-import time
 import os
-# Sqlite3 - Panda converter library
-from sqlalchemy import create_engine
-# County ISO3 code converter
-import country_converter as coco
-
-# Beautiful Soup
-
-from bs4 import BeautifulSoup
-
+import pickle
+import time
 # Requests
 import urllib.request
 
+# County ISO3 code converter
+import country_converter as coco
+import pandas as pd
+# Beautiful Soup
+from bs4 import BeautifulSoup
 # Selenium inports
 from selenium import webdriver
-from selenium.webdriver.support.wait import WebDriverWait
 from selenium.webdriver.common.by import By
-from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.support.wait import WebDriverWait
+# Sqlite3 - Panda converter library
+from sqlalchemy import create_engine
 
 
 def df2sqlite_v2(dataframe, db_name):
@@ -46,6 +44,52 @@ def url_is_alive(url):
         return True
     except urllib.request.HTTPError:
         return False
+
+
+def get_player_names(player_names_in_reverse, player1, player2):
+    player1_last_name_list = [name for name in player1.split() if '.' not in name]
+    player2_last_name_list = [name for name in player2.split() if '.' not in name]
+
+    if '-' in player2_last_name_list[0]:  # if last name is corrina-burata, then corrina,burata
+        player2_last_name_list = player2_last_name_list[0].split('-')
+
+    if '-' in player1_last_name_list[0]:  # if last name is corrina-burata, then corrina,burata
+        player1_last_name_list = player1_last_name_list[0].split('-')
+    # print("player2_last_name: {}".format(player2_last_name_list))
+    #  print("player1_last_name_list: {}".format(player1_last_name_list))
+
+    player_2_last_name_index = player_names_in_reverse.index(player2_last_name_list[0])  # smith
+    #  print("player_2_last_name_index: {}".format(player_2_last_name_index))
+
+    player_2_name_reverse = player_names_in_reverse[player_2_last_name_index:]
+    # print("player_2_name_reverse: {}".format(player_2_name_reverse))
+
+    player_2_first_name_index = player_2_name_reverse.index(player2_last_name_list[-1])
+    player_2_first_name = player_2_name_reverse[player_2_first_name_index + 1:]
+
+    player1_last_name_index = player_names_in_reverse.index(player1_last_name_list[-1])
+    player1_last_name = player_names_in_reverse[:player1_last_name_index + 1]
+    player1_first_name = player_names_in_reverse[player1_last_name_index + 1:player_2_last_name_index:1]
+
+    print("Fist name of Player 1 is {}:".format(player1_first_name))
+    print("Last name of Player 1 is {}:".format(player1_last_name))
+    print("First name of Player 2: {}".format(player_2_first_name))  # de minaur alex
+    print("Last name of Player 2 is: {}.".format(player2_last_name_list))
+    player1_name = str.join(' ', player1_first_name + player1_last_name)
+    player2_name = str.join(' ', player_2_first_name + player2_last_name_list)
+    print("Player 1 name is {}".format(player1_name))
+    print('Player 2s name is {}'.format(player2_name))
+    return player1_name, player2_name
+
+
+def load_wimbledon_2018_odds(odds_file):
+    with open(odds_file, 'rb') as f:
+        data = pickle.load(f)
+
+    updated_data = [d for d in data if 'bwin' in d]
+    # for d in updated_data:
+    # print(d)
+    return updated_data
 
 
 class OddsScraper(object):
@@ -169,8 +213,8 @@ class OddsScraper(object):
         """
         table = soup.find('table', class_='table-main')
         matches = table.find_all('td', class_='name table-participant')
-        urls = [m.a['href'] for m in matches]
-        return urls
+        links = [m.a['href'] for m in matches]
+        return links
 
     # Gives the url's of all matches played in the specified tournament. Tournament must be in 2018
     # An example url would be: "http://www.oddsportal.com/tennis/united-kingdom/atp-wimbledon/results/"
@@ -219,60 +263,28 @@ class OddsScraper(object):
         print("Number of matches: {}. For tournament {}.".format(len(flat_list), url.split(os.sep)[-3]))
         return flat_list
 
-    def player_names_test(self):
-
-        names = ['del potro', 'corrino-burata', 'potro corrino-burata']
-        reverse = [['del', 'potro', 'rafael', 'nadal'], ['corrino', 'burata', 'rafael', 'nadal'],
-                   ['potro', 'corrino', 'burata', 'rafael', 'nadal']]
-        i = 0
-        player2 = 'guillermo garcia-lopez'
-        player1 = 'daniil medyedev'
-
-        for player_names_in_reverse in reverse:
-
-            player2_last_name = player2.split()[:-1]  # De Minaur R. --> De Minaur
-            player1_last_name_list = player1.split()[:-1]
-            # print("Last name of second player is: {}.".format(player2_last_name))
-            # print("Last name of first player is: {}".format(player1_last_name_list))
-            if '-' in player2_last_name[0]:  # if last name is corrina-burata, then corrina,burata
-                player2_last_name = player2_last_name[0].split('-')
-
-            player_2_last_name_index = player_names_in_reverse.index(player2_last_name[0])
-            player_2_name_reverse = player_names_in_reverse[player_2_last_name_index:]
-            player_2_first_name_index = player_2_name_reverse.index(player2_last_name[-1])
-            player_2_first_name = player_2_name_reverse[player_2_first_name_index + 1:]
-
-            player1_last_name_index = player_names_in_reverse.index(player1_last_name_list[-1])
-            player1_last_name = player_names_in_reverse[:player1_last_name_index + 1]
-            player1_first_name = player_names_in_reverse[player1_last_name_index + 1:player_2_last_name_index:1]
-
-            print("Fist name of player 1 is {}:".format(player1_first_name))
-            print("Last name of player 1 is {}:".format(player1_last_name))
-            print("First name of second player: {}".format(player_2_first_name))  # de minaur alex
-            print("Last name of second player is: {}.".format(player2_last_name))
-
-            print("Player 1 name is {}".format(str.join(' ', (player1_first_name + player1_last_name))))
-            print('Player 2s name is {}'.format(str.join(' ', player_2_first_name + player2_last_name)))
-
     # Scrape the odds and player info from a match url
-    def odds_scraper_for_a_match(self, match_urls):
-        # CLASS -TABLE CONTAINER
+    def odds_scraper_for_a_match(self, match_urls, save):
 
+        # get the fuckin local path
         chromedriver = '/Users/aysekozlu/PyCharmProjects/TennisModel/chromedriver'
         driver = webdriver.Chrome(chromedriver)
         i = 0
         # For each match
+
+        odds_and_players = []
         for url in match_urls:
+            data = []
             match_url = 'http://www.oddsportal.com' + url
             i = i + 1
             driver.get(match_url)
             soup = BeautifulSoup(driver.page_source, 'html.parser')  # scrape the website
             bookie_data = detectBookieData(soup)
             if bookie_data is not None:
+
                 table = bookie_data.find('table', {'class': "table-main detail-odds sortable"})  # Find the Odds Table
                 # This part is scraping a Beautiful Soup Table. Returns the odds and the bookie name for the match
                 table_body = table.find('tbody')
-                data = []
                 rows = table_body.find_all('tr')
                 for row in rows:
                     cols = row.find_all('td')
@@ -288,45 +300,27 @@ class OddsScraper(object):
                 print("These are player names I got from url {}".format(player_names_in_reverse))
                 content = soup.find('div', id='col-content')
                 content.span.extract()
+                # all_result = content.find('p', class_='result').get_text()
 
                 player1, player2 = content.h1.get_text().lower().split(
                     ' - ')  # These names are in format Djokovic N.-Nadal R.
-                print("Player 1 name got from the oddsportal website: {}".format(player1))
-                print("Player 2 name got from the oddsportal website: {}".format(player2))
 
-                player2_last_name = player2.split()[:-1]  # De Minaur R. --> De Minaur
-                player1_last_name_list = player1.split()[:-1]
-                # print("Last name of second player is: {}.".format(player2_last_name))
-                # print("Last name of first player is: {}".format(player1_last_name_list))
-                if '-' in player2_last_name[0]:  # if last name is corrina-burata, then corrina,burata
-                    player2_last_name = player2_last_name[0].split('-')
+                # Function call gets player names in FULL --> First Name Last Name format
+                player1_name, player2_name = get_player_names(player_names_in_reverse, player1, player2)
+                data = [item for sublist in data for item in sublist]
+                data.append(player1_name)
+                data.append(player2_name)
 
-                if '-' in player1_last_name_list[0]:  # if last name is corrina-burata, then corrina,burata
-                    player1_last_name_list = player1_last_name_list[0].split('-')
-
-                player_2_last_name_index = player_names_in_reverse.index(player2_last_name[0])
-                player_2_name_reverse = player_names_in_reverse[player_2_last_name_index:]
-                player_2_first_name_index = player_2_name_reverse.index(player2_last_name[-1])
-                player_2_first_name = player_2_name_reverse[player_2_first_name_index + 1:]
-
-                player1_last_name_index = player_names_in_reverse.index(player1_last_name_list[-1])
-                player1_last_name = player_names_in_reverse[:player1_last_name_index + 1]
-                player1_first_name = player_names_in_reverse[player1_last_name_index + 1:player_2_last_name_index:1]
-
-                print("Fist name of player 1 is {}:".format(player1_first_name))
-                print("Last name of player 1 is {}:".format(player1_last_name))
-                print("First name of second player: {}".format(player_2_first_name))  # de minaur alex
-                print("Last name of second player is: {}.".format(player2_last_name))
-
-                print("Player 1 name is {}".format(str.join(' ', (player1_first_name + player1_last_name))))
-                print('Player 2s name is {}'.format(str.join(' ', player_2_first_name + player2_last_name)))
-                data.append(player_names_in_reverse)
-                odds_and_players = [item for sublist in data for item in sublist]
+                odds_and_players.append(data)
                 # print(odds_and_players)  # This list includes odds + player names
+
             else:
                 print('We were unable to find bookie data')
-        driver.quit()
-        print(i)
+        if save:
+            with open('wimbledon_2018_odds.pkl', "wb") as fp:  # Pickling
+                pickle.dump(odds_and_players, fp)
+
+            driver.quit()
 
     # Scrapes all the old versions of a specified tournament
     def historical_odds_for_tournament_scraper(self, url):
@@ -338,7 +332,7 @@ class OddsScraper(object):
             driver.get(url)
 
             soup = BeautifulSoup(driver.page_source, 'html.parser')
-            n, seasons = self.seasonParser(soup)
+            n, seasons = self.season_parser(soup)
             print("There are {} seasons, which are {}".format(n, seasons))
 
             seasons_format = ['http://www.oddsportal.com' + url
@@ -351,7 +345,7 @@ class OddsScraper(object):
                 driver.get(season)
                 # A wait seems to be needed as the pagination loads dynamically.
                 # Here, we wait up until the pagination bar can be clicked.
-                wait_pagination = WebDriverWait(driver, 100).until(
+                WebDriverWait(driver, 100).until(
                     EC.element_to_be_clickable(
                         (By.ID, 'pagination')
                     ))
@@ -373,7 +367,7 @@ class OddsScraper(object):
                         next_page.send_keys(Keys.ENTER)
 
                         # Waiting for the pagination is as waiting for the table
-                        wait_pagination = WebDriverWait(driver, 100).until(
+                        WebDriverWait(driver, 100).until(
                             EC.element_to_be_clickable(
                                 (By.ID, 'pagination')
                             ))
@@ -386,7 +380,7 @@ class OddsScraper(object):
             return tot_urls
 
     # Function gets all the seasons of a single tournament
-    def seasonParser(self, soup):
+    def season_parser(self, soup):
         """
         Parameter:
         - BeautifulSoup.soup(soup) a soup object obtained from the page DOM
@@ -425,10 +419,15 @@ tot_urls = odds_scraper.historical_odds_for_tournament_scraper(
 flatten_urls_list = [url for l in tot_urls for url in l]
 print(len(flatten_urls_list))
 """
-# odds_scraper.player_names_test()
+
+# loading wimbledon 2018 odds
+"""
 urls = odds_scraper.tournament_odds_scraper("http://www.oddsportal.com/tennis/united-kingdom/atp-wimbledon/results/")
 print(len(urls))
-odds_scraper.odds_scraper_for_a_match(urls)
+
+odds_scraper.odds_scraper_for_a_match(urls, save=True)
+
+"""
 
 # odds_scraper.odds_database_search("world_tennis_odds.csv")
 
