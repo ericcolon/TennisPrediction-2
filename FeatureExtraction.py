@@ -1,5 +1,3 @@
-import time
-
 import numpy as np
 # Sqlite3 - Panda converter library
 from sqlalchemy import create_engine
@@ -141,6 +139,8 @@ class FeatureExtraction(object):
         self.stats['SERVEADV2'] = ""
         self.stats['COMPLETE1'] = ""
         self.stats['COMPLETE2'] = ""
+        self.stats['BP1'] = ""
+        self.stats['BP2'] = ""
 
         print("Number of matches with statistics is: {}".format(len(self.stats)))
         dropped_games = 0
@@ -176,6 +176,16 @@ class FeatureExtraction(object):
                 int(self.stats.at[i, 'TPW_1']) / (int(self.stats.at[i, 'TPW_1']) + int(self.stats.at[i, 'TPW_2'])))
             tpwp2 = float(
                 int(self.stats.at[i, 'TPW_2']) / (int(self.stats.at[i, 'TPW_1']) + int(self.stats.at[i, 'TPW_2'])))
+
+            if int(self.stats.at[i, 'BPOF_1']) == 0:
+                bp1 = 0
+            else:
+                bp1 = float(int(self.stats.at[i, 'BP_1']) / int(self.stats.at[i, 'BPOF_1']))
+            if int(self.stats.at[i, 'BPOF_2']) == 0:
+                bp2 = 0
+            else:
+                bp2 = float(int(self.stats.at[i, 'BP_2']) / int(self.stats.at[i, 'BPOF_2']))
+
             stat_feats = [fs_percentage_p1, fs_percentage_p2, w1sp1, w1sp2, w2sp1, w2sp2, wrp1, wrp2, tpwp1, tpwp2]
 
             if all(f > 0 and f < 1 for f in stat_feats):
@@ -205,6 +215,8 @@ class FeatureExtraction(object):
                 self.stats.at[i, 'SERVEADV2'] = serveadv2
                 self.stats.at[i, 'COMPLETE1'] = complete1
                 self.stats.at[i, 'COMPLETE2'] = complete2
+                self.stats.at[i, 'BP1'] = bp1
+                self.stats.at[i, 'BP2'] = bp2
 
             else:
                 #  if the required features are not in range [0,1] drop it from the dataset
@@ -229,6 +241,10 @@ class FeatureExtraction(object):
         del self.stats['RPWOF_1']
         del self.stats['RPW_2']
         del self.stats['RPWOF_2']
+        del self.stats['BP_1']
+        del self.stats['BPOF_1']
+        del self.stats['BP_2']
+        del self.stats['BPOF_2']
 
         print("Number of matches dropped because of invalid stats were: {}.".format(dropped_games))
         print('The number of remaining games in our stats dataset is {}:'.format(len(self.stats)))
@@ -541,9 +557,9 @@ def create_surface_matrix(self):
             number_of_players]
 
 """
-""" 
+
 # RUN THIS CODE  
-#Code to create the Sqlite stats database with all the required information to create features
+# Code to create the Sqlite stats database with all the required information to create features
 feature_extraction = FeatureExtraction("db.sqlite")
 new_stats = feature_extraction.create_new_stats()
 new_stats_v1 = feature_extraction.create_results(new_stats)
@@ -555,7 +571,9 @@ print(new_stats_v1.info())
 print(new_stats_v2.info())
 print(new_stats_v3.info())
 print(new_stats_v4.info())
-df2sqlite_v2(new_stats_v4, 'updated_stats_v2')
+df2sqlite_v2(new_stats_v4, 'updated_stats_v3')
+
+"""
 feature_extraction.extract_players()
 """
 # RUN THIS CODE to extract player sqlite3 database

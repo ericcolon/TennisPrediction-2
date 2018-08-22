@@ -82,7 +82,7 @@ def get_player_names(player_names_in_reverse, player1, player2):
     return player1_name, player2_name
 
 
-def load_wimbledon_2018_odds(odds_file):
+def loads_odds_into_a_list(odds_file):
     with open(odds_file, 'rb') as f:
         data = pickle.load(f)
 
@@ -211,15 +211,19 @@ class OddsScraper(object):
         Returns:
         - A list of urls to the matches.
         """
+        table_headers = []
         table = soup.find('table', class_='table-main')
+        #for tx in soup.find_all('th'):
+        #    table_headers.append(tx)
+        #print(table_headers)
         matches = table.find_all('td', class_='name table-participant')
         links = [m.a['href'] for m in matches]
         return links
 
-    # Gives the url's of all matches played in the specified tournament. Tournament must be in 2018
+    # Gives the url's of all matches played in the specified HISTORICAL tournament.
     # An example url would be: "http://www.oddsportal.com/tennis/united-kingdom/atp-wimbledon/results/"
     # This would give the odds of 241 Wimbledon 2018 matches.
-    def tournament_odds_scraper(self, url):
+    def historical_tournament_odds_scraper(self, url):
         tot_urls = []
         if url_is_alive(url):
             print("URL IS ALIVE.")
@@ -254,7 +258,9 @@ class OddsScraper(object):
                             (By.ID, 'pagination')
                         ))
                     soup = BeautifulSoup(driver.page_source, 'html.parser')
-                    tot_urls.append(self.matchUrls(soup))
+                    link = self.matchUrls(soup)
+                    tot_urls.append(link)
+
             driver.quit()
         else:
             print("URL IS NOT VALID.")
@@ -263,15 +269,33 @@ class OddsScraper(object):
         print("Number of matches: {}. For tournament {}.".format(len(flat_list), url.split(os.sep)[-3]))
         return flat_list
 
-    # Scrape the odds and player info from a match url
-    def odds_scraper_for_a_match(self, match_urls, save):
+    # Scrape the odds and player info from a match url for a CURRENT tournament
+    def current_tournament_odds_scraper(self, url):
+        tot_urls = []
+        if url_is_alive(url):
+            print("URL IS ALIVE.")
+            chromedriver = '/Users/aysekozlu/PyCharmProjects/TennisModel/chromedriver'
+            driver = webdriver.Chrome(chromedriver)
+            driver.get(url)
+            soup = BeautifulSoup(driver.page_source, 'html.parser')
+            tot_urls.append(self.matchUrls(soup))
+            driver.quit()
+        else:
+            print("URL IS NOT VALID.")
+        flat_list = [item for sublist in tot_urls for item in sublist]
+        print("Number of matches: {}. For tournament {}.".format(len(flat_list), url.split(os.sep)[-3]))
+        return flat_list
+
+    def odds_scraper_for_future_matches(self, match_urls, odds_database_name, save):
+        pass
+
+    def odds_scraper_for_a_match(self, match_urls, odds_database_name, save):
 
         # get the fuckin local path
         chromedriver = '/Users/aysekozlu/PyCharmProjects/TennisModel/chromedriver'
         driver = webdriver.Chrome(chromedriver)
         i = 0
         # For each match
-
         odds_and_players = []
         for url in match_urls:
             data = []
@@ -279,9 +303,36 @@ class OddsScraper(object):
             i = i + 1
             driver.get(match_url)
             soup = BeautifulSoup(driver.page_source, 'html.parser')  # scrape the website
-            bookie_data = detectBookieData(soup)
-            if bookie_data is not None:
 
+            # Selecting odds button
+            expansion_button = WebDriverWait(driver, 10).until(
+                EC.element_to_be_clickable((By.XPATH, '// *[ @ id = "user-header-oddsformat-expander"]')))
+            expansion_button.click()
+            # Selecting EU Odds
+            eu_odds_button = WebDriverWait(driver, 10).until(
+                EC.element_to_be_clickable((By.XPATH, '// *[ @ id = "user-header-oddsformat"] / li[1] / a')))
+            eu_odds_button.click()
+
+            bookie_data = detectBookieData(soup)
+
+            final_result = soup.find('p', class_='result')
+
+            if final_result is not None:
+                final_result = final_result.strong.get_text()
+            else:
+                print("The final result was not accessible for this match, therefore we skip it.")
+                continue
+
+            final_result = final_result.split(':') if final_result != u'' else ['']
+            print(final_result)
+
+            if bookie_data is not None and final_result is not None and len(final_result) == 2:
+                if int(final_result[0]) > int(final_result[1]):
+                    result = 1
+                    print(result)
+                else:
+                    result = 0
+                    print(result)
                 table = bookie_data.find('table', {'class': "table-main detail-odds sortable"})  # Find the Odds Table
                 # This part is scraping a Beautiful Soup Table. Returns the odds and the bookie name for the match
                 table_body = table.find('tbody')
@@ -310,14 +361,16 @@ class OddsScraper(object):
                 data = [item for sublist in data for item in sublist]
                 data.append(player1_name)
                 data.append(player2_name)
+                data.append(result)
 
                 odds_and_players.append(data)
                 # print(odds_and_players)  # This list includes odds + player names
 
             else:
                 print('We were unable to find bookie data')
+        print(len(odds_and_players))
         if save:
-            with open('wimbledon_2018_odds.pkl', "wb") as fp:  # Pickling
+            with open(odds_database_name, "wb") as fp:  # Pickling
                 pickle.dump(odds_and_players, fp)
 
             driver.quit()
@@ -412,20 +465,39 @@ class OddsScraper(object):
 
 
 odds_scraper = OddsScraper()
+urls = odds_scraper.current_tournament_odds_scraper("http://www.oddsportal.com/tennis/usa/atp-us-open/")
+print(len(urls))
+print(urls)
+#odds_scraper.odds_scraper_for_a_match(urls, "roland_garros_2017_odds.pkl", save=False)
+# loading US-Open 2017 odds
 """
+urls = odds_scraper.tournament_odds_scraper("http://www.oddsportal.com/tennis/usa/atp-us-open/results/")
+print(len(urls))
+odds_scraper.odds_scraper_for_a_match(urls, "roland_garros_2017_odds.pkl", save=True)"""
+"""
+urls = odds_scraper.tournament_odds_scraper("http://www.oddsportal.com/tennis/usa/atp-us-open/results/")
+print(len(urls))
+odds_scraper.odds_scraper_for_a_match(urls, "roland_garros_2017_odds.pkl", save=True)
+"""
+
+"""
+Loading historical odds for a tournament 
 tot_urls = odds_scraper.historical_odds_for_tournament_scraper(
     "http://www.oddsportal.com/tennis/united-kingdom/atp-wimbledon/results/")
 
 flatten_urls_list = [url for l in tot_urls for url in l]
 print(len(flatten_urls_list))
 """
+"""
 
 # loading wimbledon 2018 odds
 """
-urls = odds_scraper.tournament_odds_scraper("http://www.oddsportal.com/tennis/united-kingdom/atp-wimbledon/results/")
+"""
+urls = odds_scraper.tournament_odds_scraper("http://www.oddsportal.com/tennis/united-kingdom/atp-wimbledon/results/","wimbledon_2018_odds_v3")
 print(len(urls))
 
 odds_scraper.odds_scraper_for_a_match(urls, save=True)
+
 
 """
 
@@ -433,15 +505,3 @@ odds_scraper.odds_scraper_for_a_match(urls, save=True)
 
 # Run this line to create the odds database
 # odds_scraper.historical_odds_database("world_tennis_odds.csv")
-
-
-# Archived results page
-"""
-chromedriver = '/Users/aysekozlu/PyCharmProjects/TennisModel/chromedriver'
-driver = webdriver.Chrome(chromedriver)
-driver.get('http://www.oddsportal.com/tennis/results/')
-wait = WebDriverWait(driver, 10).until(EC.visibility_of_element_located((By.CSS_SELECTOR, "table.table-main.sport")))
-tournaments_list = odds_scraper.archivedResults(driver.page_source)
-driver.quit()
-
-"""
