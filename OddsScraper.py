@@ -211,11 +211,11 @@ class OddsScraper(object):
         Returns:
         - A list of urls to the matches.
         """
-        table_headers = []
+
         table = soup.find('table', class_='table-main')
-        #for tx in soup.find_all('th'):
+        # for tx in soup.find_all('th'):
         #    table_headers.append(tx)
-        #print(table_headers)
+        # print(table_headers)
         matches = table.find_all('td', class_='name table-participant')
         links = [m.a['href'] for m in matches]
         return links
@@ -286,9 +286,70 @@ class OddsScraper(object):
         print("Number of matches: {}. For tournament {}.".format(len(flat_list), url.split(os.sep)[-3]))
         return flat_list
 
-    def odds_scraper_for_future_matches(self, match_urls, odds_database_name, save):
-        pass
+    # Scraping the odds of a future match
+    def odds_scraper_for_future_match(self, match_urls, odds_database_name, save):
+        # get the fuckin local path
+        chromedriver = '/Users/aysekozlu/PyCharmProjects/TennisModel/chromedriver'
+        driver = webdriver.Chrome(chromedriver)
+        i = 0
+        # For each match
+        odds_and_players = []
+        for url in match_urls:
+            data = []
+            match_url = 'http://www.oddsportal.com' + url
+            i = i + 1
+            driver.get(match_url)
+            soup = BeautifulSoup(driver.page_source, 'html.parser')  # scrape the website
 
+            # Selecting odds button
+            expansion_button = WebDriverWait(driver, 10).until(
+                EC.element_to_be_clickable((By.XPATH, '// *[ @ id = "user-header-oddsformat-expander"]')))
+            expansion_button.click()
+            # Selecting EU Odds
+            eu_odds_button = WebDriverWait(driver, 10).until(
+                EC.element_to_be_clickable((By.XPATH, '// *[ @ id = "user-header-oddsformat"] / li[1] / a')))
+            eu_odds_button.click()
+
+            bookie_data = detectBookieData(soup)
+            if bookie_data is not None:
+                table = bookie_data.find('table', {'class': "table-main detail-odds sortable"})  # Find the Odds Table
+                # This part is scraping a Beautiful Soup Table. Returns the odds and the bookie name for the match
+                table_body = table.find('tbody')
+                rows = table_body.find_all('tr')
+                for row in rows:
+                    cols = row.find_all('td')
+                    cols = [ele.text.strip() for ele in cols]
+                    if 'bwin' in cols:
+                        data.append(
+                            [ele for ele in cols if ele])  # Now our list includes ['bookie',odd 1, odd 2, payout]
+
+                # Here we start a list of operations to get player names correctly.
+                player_url = url.strip().split(os.sep)[-2]
+                player_names_in_reverse = player_url.split('-')[:-1]  # get names from the url (they are in reverse)
+
+                print("These are player names I got from url {}".format(player_names_in_reverse))
+                content = soup.find('div', id='col-content')
+                content.span.extract()
+                # all_result = content.find('p', class_='result').get_text()
+
+                player1, player2 = content.h1.get_text().lower().split(
+                    ' - ')  # These names are in format Djokovic N.-Nadal R.
+
+                # Function call gets player names in FULL --> First Name Last Name format
+                player1_name, player2_name = get_player_names(player_names_in_reverse, player1, player2)
+                data = [item for sublist in data for item in sublist]
+                data.append(player1_name)
+                data.append(player2_name)
+            else:
+                print('We were unable to find bookie data')
+        print(len(odds_and_players))
+        if save:
+            with open(odds_database_name, "wb") as fp:  # Pickling
+                pickle.dump(odds_and_players, fp)
+
+            driver.quit()
+
+    # Scraping the odds and a result of a finished match
     def odds_scraper_for_a_match(self, match_urls, odds_database_name, save):
 
         # get the fuckin local path
@@ -463,13 +524,14 @@ class OddsScraper(object):
 
         return tournaments_list
 
-
+"""
 odds_scraper = OddsScraper()
+
+# Loading odds of a current tournament. US Open 2018 
 urls = odds_scraper.current_tournament_odds_scraper("http://www.oddsportal.com/tennis/usa/atp-us-open/")
 print(len(urls))
-print(urls)
-#odds_scraper.odds_scraper_for_a_match(urls, "roland_garros_2017_odds.pkl", save=False)
-# loading US-Open 2017 odds
+odds_scraper.odds_scraper_for_future_match(urls, "us_open_2018_august22_odds.pkl", save=True)
+"""
 """
 urls = odds_scraper.tournament_odds_scraper("http://www.oddsportal.com/tennis/usa/atp-us-open/results/")
 print(len(urls))
