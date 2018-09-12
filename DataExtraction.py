@@ -1,6 +1,7 @@
 import sqlite3
-import pandas as pd
 import time
+
+import pandas as pd
 
 
 class DataExtraction(object):
@@ -17,7 +18,7 @@ class DataExtraction(object):
         print("Number of players in our dataset is: {}".format(len(self.players)))
 
         ## Why was this ?
-        self.single_players = pd.read_sql_query("select ID_P,NAME_P from players_atp where DATE_P is not NULL",
+        self.single_players = pd.read_sql_query("select ID_P,NAME_P,COUNTRY_P from players_atp where DATE_P is not NULL",
                                                 self.conn)
         print("Number of single players in our dataset is: {}".format(len(self.single_players)))
 
