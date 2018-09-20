@@ -24,6 +24,15 @@ from sklearn.model_selection import train_test_split
 from OddsScraper import loads_odds_into_a_list
 from itertools import islice
 
+# Helper function to get snapshot of basic and advanced sqlite3 databases 
+def sqlite3_database_extractor():
+    conn = sqlite3.connect('updated_stats_v3.db')
+    adv_stats = pd.read_sql_query('SELECT * FROM updated_stats_v3 LIMIT 1000', conn)
+    df2sqlite_v2(adv_stats, "Adv_Stats_short")
+    conn_v2 = sqlite3.connect('db.sqlite')
+    basic_stats = pd.read_sql_query("SELECT * FROM stat_atp LIMIT 1000", conn_v2)
+    df2sqlite_v2(basic_stats, "Basic_Stats_short")
+
 
 # Methods to convert pandas dataframe into sqlite3 database
 def df2sqlite(dataframe, db_name="import.sqlite", tbl_name="import"):
@@ -1402,6 +1411,8 @@ class Models(object):
             return
 
 
+
+
 DT = Models("updated_stats_v3")  # Initalize the model class with our sqlite3 advanced stats database
 
 # To create the feature and label space
@@ -1426,12 +1437,12 @@ DT.train_decision_stump_model('data_v6.txt', 'label_v6.txt', number_of_features=
 """
 
 # To train and test a Decision Stump Model
-
+"""
 DT.train_decision_stump_model('data_v6.txt', 'label_v6.txt', number_of_features=7, development_mode=False,
                               prediction_mode=True, historical_tournament=True, save=False, training_mode=False,
                               test_given_model=False, tournament_pickle_file_name='us_open_2017_odds_v2.pkl',
                               court_type=1)
-
+"""
 """DT.train_decision_stump_model('data_v6.txt', 'label_v6.txt', number_of_features=7, development_mode=False,
                               prediction_mode=True, historical_tournament=True, save=False, training_mode=False,
                               test_given_model=False, tournament_pickle_file_name='wimbledon_2018_odds_v2.pkl',
