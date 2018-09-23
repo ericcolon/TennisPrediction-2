@@ -24,7 +24,8 @@ from sklearn.model_selection import train_test_split
 from OddsScraper import loads_odds_into_a_list
 from itertools import islice
 
-# Helper function to get snapshot of basic and advanced sqlite3 databases 
+
+# Helper function to get snapshot of basic and advanced sqlite3 databases
 def sqlite3_database_extractor():
     conn = sqlite3.connect('updated_stats_v3.db')
     adv_stats = pd.read_sql_query('SELECT * FROM updated_stats_v3 LIMIT 1000', conn)
@@ -305,24 +306,25 @@ class Models(object):
 
             # Get past opponents of both players
             opponents_of_p1 = [games.ID2 if (player1_id == games.ID1) else games.ID1 for games in earlier_games_of_p1]
-
             opponents_of_p2 = [games.ID2 if (player2_id == games.ID1) else games.ID1 for games in earlier_games_of_p2]
 
+            # We check if these two players have played before
+            m = self.dataset[(self.dataset['ID1'] == player1_id) & (self.dataset['ID2'] == player2_id)].index.tolist()
+            m.append(
+                self.dataset[(self.dataset['ID1'] == player2_id) & (self.dataset['ID2'] == player1_id)].index.tolist())
+
+            # If they did, we manually add player id's to their own opponent list so that intersection picks it up.
+            past_match_indexes = [x for x in m if x]
+
+            if len(past_match_indexes) > 1:
+                opponents_of_p1.append(player1_id)
+                opponents_of_p2.append(player2_id)
             sa = set(opponents_of_p1)
             sb = set(opponents_of_p2)
-            print(sa.__contains__(player2_id))
-            print(sb.__contains__(player1_id))
-            # m = self.dataset[(self.dataset['ID1'] == player1_id) & (self.dataset['ID2'] == player2_id)].index.tolist()
-            # m.append(self.dataset[(self.dataset['ID1'] == player2_id) & (self.dataset['ID2'] == player1_id)].index.tolist())
-            # print("Indexes of this match are: {}:".format(m.index))
 
-            print("ali")
-            print("stop")
             # Find common opponents that these players have faced
             # TO DO : YOU HAVE TO ADD THE CURRENT OPPONENT IF THEY HAVE PLAYED BEFORE
             common_opponents = sa.intersection(sb)
-            print(common_opponents.__contains__(player1_id))
-            print(common_opponents.__contains__(player2_id))
 
             if len(common_opponents) < 5:
                 zero_common_opponents = zero_common_opponents + 1
@@ -376,16 +378,17 @@ class Models(object):
                     game.court_type] * abs(game.year - current_year + 1) * time_discount_factor for game in
                                   player2_games_updated]
 
-                list_of_breaking_points_1 = [game.BP1 * court_dict[current_court_id][game.court_type] * abs(
-                    game.year - current_year + 1) * time_discount_factor
+                list_of_breaking_points_1 = [game.BP1 * court_dict[current_court_id]
+                [game.court_type] * abs(game.year - current_year + 1) * time_discount_factor
                                              if game.ID1 == player1_id else game.BP2 * court_dict[current_court_id][
                     game.court_type] * abs(game.year - current_year + 1) * time_discount_factor for game in
                                              player1_games_updated]
 
-                list_of_breaking_points_2 = [game.BP1 * court_dict[current_court_id][game.court_type] * abs(
-                    game.year - current_year + 1) * time_discount_factor if game.ID1 == player2_id
-                                             else game.BP2 * court_dict[current_court_id][game.court_type] * abs(
-                    game.year - current_year + 1) * time_discount_factor for game in player2_games_updated]
+                list_of_breaking_points_2 = [game.BP1 * court_dict[current_court_id][
+                    game.court_type] * abs(game.year - current_year + 1) * time_discount_factor
+                                             if game.ID1 == player2_id else game.BP2 * court_dict[current_court_id][
+                    game.court_type] * abs(game.year - current_year + 1) * time_discount_factor for game in
+                                             player2_games_updated]
 
                 # ADDED: ACES PER GAME (NOT PER MATCH)
                 list_of_aces_1 = [game.ACES_1 * court_dict[current_court_id][game.court_type] * abs(
@@ -820,7 +823,6 @@ class Models(object):
                     pass
             if historical_tournament:
                 print(linear_clf.classes_)
-                print(linear_clf.feature_importances_)
                 predictions = {}
                 for i, (old_test_vector, new_test_vector) in enumerate(
                         self.predictions_old_feature_to_new_feature_dictionary.items()):
@@ -845,21 +847,72 @@ class Models(object):
                         total_winnings = total_winnings - bet_amount
 
                     # print("Our total winnings so far is {}".format(total_winnings))
-                    print("Total amount of bets we made is: {}".format(bet_amount * len(results)))
+
                     print(total_winnings)
+
+                print("Total amount of bets we made is: {}".format(bet_amount * len(results)))
                 print(total_winnings)
                 ROI = (total_winnings - (bet_amount * len(results))) / (bet_amount * len(results)) * 100
                 print("Our ROI for Wimbledon 2018 was: {}.".format(ROI))
-                """
-                 for match, data in islice(predictions.items(), len(predictions) / 2):
+
+                total_winnings = 0
+                bet_amount = 10
+                correct = 0
+                count = 0
+                for match, data in predictions.items():
                     match = list(match)
+
+                    id1 = match[0]
+                    id2 = match[1]
                     pred = data[0]
                     result = data[1]
-                    probability = data[2]
                     odds = data[3]
                     selected_odd = data[4]
-                """
+                    probability = data[2]
+                    probability = [url for l in probability for url in l]
 
+                    match2 = predictions[tuple([id2, id1])]
+
+                    pred2 = match2[0]
+                    result2 = match2[1]
+                    odds2 = match2[3]
+                    selected_odd2 = match2[4]
+                    probability2 = match2[2]
+
+                    reverse_prob_2 = np.fliplr(probability2)
+
+                    average_probability = np.mean([probability, reverse_prob_2], axis=0).tolist()
+
+                    average_probability = [url for l in average_probability for url in l]
+                    print("The average probability for match {} was {}".format(match, average_probability))
+                    higher_prob = max(average_probability)
+                    if higher_prob < 0.80:
+                        continue
+                    else:
+
+                        prediction = average_probability.index(higher_prob)
+                        if float(odds[abs(int(prediction) - 1)]) < 1.49 :
+                            continue
+                        else:
+                            count = count + 1
+                            print("Prediction for match {} was {}. The result was {}. The prediction probability is {}."
+                                  "The odds were {}.The odds we chose to bet was {}".format(match, prediction, result,
+                                                                                            average_probability
+                                                                                            , odds,
+                                                                                            odds[abs(int(prediction) - 1)]))
+
+                            if prediction == result:
+                                correct = correct + 1
+                                # total_winnings = total_winnings + (bet_amount * float(odds[abs(int(prediction) - 1)]))
+                            else:
+                                pass
+                            # total_winnings = total_winnings - bet_amount
+                # print(total_winnings)
+                print(correct)
+                print(count)
+                print(correct / count)
+                # ROI = (total_winnings - (bet_amount * len(predictions))) / (bet_amount * len(predictions)) * 100
+                print("Our ROI for Wimbledon 2018 was: {}.".format(ROI))
             if save:
                 joblib.dump(linear_clf, 'DT_Model_3.pkl')
 
@@ -1110,6 +1163,8 @@ class Models(object):
         court_dict[6][6] = float(1)
 
         current_year = 2018
+        if self.dataset.year is None:
+            self.dataset.year = 2018
         time_discount_factor = 0.8
         # All games that two players have played
         player1_games = self.dataset.loc[np.logical_or(self.dataset.ID1 == player1_id, self.dataset.ID2 == player1_id)]
@@ -1131,6 +1186,17 @@ class Models(object):
             games.ID2 if (player2_id == games.ID1) else
             games.ID1 for games in earlier_games_of_p2]
 
+        # We check if these two players have played before
+        m = self.dataset[(self.dataset['ID1'] == player1_id) & (self.dataset['ID2'] == player2_id)].index.tolist()
+        m.append(
+            self.dataset[(self.dataset['ID1'] == player2_id) & (self.dataset['ID2'] == player1_id)].index.tolist())
+
+        # If they did, we manually add player id's to their own opponent list so that intersection picks it up.
+        past_match_indexes = [x for x in m if x]
+
+        if len(past_match_indexes) > 1:
+            opponents_of_p1.append(player1_id)
+            opponents_of_p2.append(player2_id)
         sa = set(opponents_of_p1)
         sb = set(opponents_of_p2)
 
@@ -1411,12 +1477,10 @@ class Models(object):
             return
 
 
-
-
 DT = Models("updated_stats_v3")  # Initalize the model class with our sqlite3 advanced stats database
 
 # To create the feature and label space
-data_label = DT.create_feature_set('data_v6.txt', 'label_v6.txt')
+# ,edata_label = DT.create_feature_set('data_v7.txt', 'label_v7.txt')
 # print(len(data_label[0]))
 # print(len(data_label[1]))
 
@@ -1430,19 +1494,12 @@ data_label = DT.create_feature_set('data_v6.txt', 'label_v6.txt')
 # To train an AdaBoost Classifier
 # To train and make predictions on Decision Stump Model
 
-"""
 
-DT.train_decision_stump_model('data_v6.txt', 'label_v6.txt', number_of_features=7, development_mode=False,
-                              prediction_mode=True, save=False, training_mode=False, test_given_model=False)
-"""
-
-# To train and test a Decision Stump Model
-"""
-DT.train_decision_stump_model('data_v6.txt', 'label_v6.txt', number_of_features=7, development_mode=False,
+DT.train_decision_stump_model('data_v7.txt', 'label_v7.txt', number_of_features=7, development_mode=False,
                               prediction_mode=True, historical_tournament=True, save=False, training_mode=False,
                               test_given_model=False, tournament_pickle_file_name='us_open_2017_odds_v2.pkl',
                               court_type=1)
-"""
+
 """DT.train_decision_stump_model('data_v6.txt', 'label_v6.txt', number_of_features=7, development_mode=False,
                               prediction_mode=True, historical_tournament=True, save=False, training_mode=False,
                               test_given_model=False, tournament_pickle_file_name='wimbledon_2018_odds_v2.pkl',
