@@ -222,8 +222,8 @@ class OddsScraper(object):
 
     # Gives the url's of all matches played in the specified HISTORICAL tournament.
     # An example url would be: "http://www.oddsportal.com/tennis/united-kingdom/atp-wimbledon/results/"
-    # This would give the odds of 241 Wimbledon 2018 matches.
-    def historical_tournament_odds_scraper(self, url):
+    # This would give the odds of 241 Wimbledon 2017 matches.
+    def historical_tournament_odds_scraper(self, url,one_page):
         tot_urls = []
         if url_is_alive(url):
             print("URL IS ALIVE.")
@@ -231,35 +231,40 @@ class OddsScraper(object):
             driver = webdriver.Chrome(chromedriver)
             # driver = webdriver.Chrome()  # webdriver.Chrome("./chromedriver/chromedriver.exe")
             driver.get(url)
-            soup = BeautifulSoup(driver.page_source, 'html.parser')
-            WebDriverWait(driver, 100).until(
-                EC.element_to_be_clickable(
-                    (By.ID, 'pagination')
-                ))
 
-            # Get the last page of the pagination.
-            last_page_number = int(
-                soup.find('div',
-                          id='pagination').find_all('a')[-1]['x-page'])
+            if one_page:
+                soup = BeautifulSoup(driver.page_source, 'html.parser')
+                tot_urls.append(self.matchUrls(soup))
+            else:
+                soup = BeautifulSoup(driver.page_source, 'html.parser')
+                WebDriverWait(driver, 100).until(
+                    EC.element_to_be_clickable(
+                        (By.ID, 'pagination')
+                    ))
 
-            for i in range(1, last_page_number + 1):
+                # Get the last page of the pagination.
+                last_page_number = int(
+                    soup.find('div',
+                              id='pagination').find_all('a')[-1]['x-page'])
 
-                if i is 1:
-                    # Nothing to click on, the page is displayed
-                    soup = BeautifulSoup(driver.page_source, 'html.parser')
-                    tot_urls.append(self.matchUrls(soup))
+                for i in range(1, last_page_number + 1):
 
-                else:
-                    next_page = driver.find_element_by_link_text(str(i))
-                    next_page.send_keys(Keys.ENTER)
-                    # Waiting for the pagination is as waiting for the table
-                    WebDriverWait(driver, 100).until(
-                        EC.element_to_be_clickable(
-                            (By.ID, 'pagination')
-                        ))
-                    soup = BeautifulSoup(driver.page_source, 'html.parser')
-                    link = self.matchUrls(soup)
-                    tot_urls.append(link)
+                    if i is 1:
+                        # Nothing to click on, the page is displayed
+                        soup = BeautifulSoup(driver.page_source, 'html.parser')
+                        tot_urls.append(self.matchUrls(soup))
+
+                    else:
+                        next_page = driver.find_element_by_link_text(str(i))
+                        next_page.send_keys(Keys.ENTER)
+                        # Waiting for the pagination is as waiting for the table
+                        WebDriverWait(driver, 100).until(
+                            EC.element_to_be_clickable(
+                                (By.ID, 'pagination')
+                            ))
+                        soup = BeautifulSoup(driver.page_source, 'html.parser')
+                        link = self.matchUrls(soup)
+                        tot_urls.append(link)
 
             driver.quit()
         else:
@@ -524,36 +529,39 @@ class OddsScraper(object):
 
         return tournaments_list
 
-"""
-odds_scraper = OddsScraper()
 
+
+odds_scraper = OddsScraper()
+"""
+
+#US OPEN 2018
+urls = odds_scraper.historical_tournament_odds_scraper("http://www.oddsportal.com/tennis/new-zealand/atp-auckland/results/",one_page=True)
+print(len(urls))
+odds_scraper.odds_scraper_for_a_match(urls, "auckland_open_2018_odds_v2.pkl", save=True)
+"""
+
+"""
 # Loading odds of a current tournament. US Open 2018 
 urls = odds_scraper.current_tournament_odds_scraper("http://www.oddsportal.com/tennis/usa/atp-us-open/")
 print(len(urls))
 odds_scraper.odds_scraper_for_future_match(urls, "us_open_2018_august22_odds.pkl", save=True)
-"""
-"""
-urls = odds_scraper.tournament_odds_scraper("http://www.oddsportal.com/tennis/usa/atp-us-open/results/")
-print(len(urls))
-odds_scraper.odds_scraper_for_a_match(urls, "roland_garros_2017_odds.pkl", save=True)"""
-"""
-urls = odds_scraper.tournament_odds_scraper("http://www.oddsportal.com/tennis/usa/atp-us-open/results/")
-print(len(urls))
-odds_scraper.odds_scraper_for_a_match(urls, "roland_garros_2017_odds.pkl", save=True)
-"""
+
 
 """
-Loading historical odds for a tournament 
+"""
+odds_scraper = OddsScraper()
+
+#HISTORICAL WIMBLEDON
+#Loading historical odds for a tournament
 tot_urls = odds_scraper.historical_odds_for_tournament_scraper(
     "http://www.oddsportal.com/tennis/united-kingdom/atp-wimbledon/results/")
 
 flatten_urls_list = [url for l in tot_urls for url in l]
 print(len(flatten_urls_list))
-"""
+odds_scraper.odds_scraper_for_a_match(flatten_urls_list,'historical_wimbledon_odds', save=True)
 """
 
 # loading wimbledon 2018 odds
-"""
 """
 urls = odds_scraper.tournament_odds_scraper("http://www.oddsportal.com/tennis/united-kingdom/atp-wimbledon/results/","wimbledon_2018_odds_v3")
 print(len(urls))
