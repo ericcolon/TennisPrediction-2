@@ -3,6 +3,7 @@ import collections
 import sqlite3
 import statistics as s
 from collections import defaultdict
+from collections import Counter
 from random import random
 import matplotlib.pyplot as plt
 import numpy as np
@@ -22,7 +23,11 @@ from sklearn.model_selection import train_test_split
 # from sklearn.tree import DecisionTreeClassifier
 # Other Classes
 from OddsScraper import loads_odds_into_a_list
-from itertools import islice
+
+
+def Most_Common(lst):
+    data = Counter(lst)
+    return data.most_common(1)[0][0]
 
 
 # Helper function to get snapshot of basic and advanced sqlite3 databases
@@ -640,7 +645,7 @@ class Models(object):
             p2_list = []
             if historical_tournament:
                 odds_of_wimbledon_2018 = loads_odds_into_a_list(tournament_pickle_file_name)
-                odds_of_wimbledon_2018.pop(0)  # Nadal vs del Potro UK odds are wrong
+                # odds_of_wimbledon_2018.pop(0)  # Nadal vs del Potro UK odds are wrong
                 print(odds_of_wimbledon_2018)
                 self.players.ID_P = self.players.ID_P.astype(int)
                 print("The initial number of games in this tournament with odds scraped is {}.".format(
@@ -685,23 +690,11 @@ class Models(object):
                 assert len(p1_list) == len(p2_list) == len(results)
 
                 print(len(match_to_results_dictionary))
-                """
-                p1_list.append(13429)
-                p2_list.append(33502)
-                results.append(0)
-                p1_list.append(18495)
-                p2_list.append(1266)
-                results.append(0)
-                match_to_odds_dictionary[tuple([13429, 33502])] = ['3.50', '1.26']
-                match_to_odds_dictionary[tuple([18495, 1266])] = ['4.60', '1.16']
-                match_to_results_dictionary[tuple([18495, 1266])] = 0
-                match_to_results_dictionary[tuple([13429, 33502])] = 0
 
-                """
                 # DONT FORGET: IF PLAYERS DO NOT HAVE COMMON OPPONENTS, YOU HAVE TO DELETE THAT ENTRY FROM THE SETS
 
                 index_games_dict_for_prediction = {
-                    tuple(self.make_predictions_using_DT(p1, p2, court_type, 17000, 7)): [p1, p2]
+                    tuple(self.make_predictions_using_DT(p1, p2, court_type, 17000, number_of_features)): [p1, p2]
                     for
                     i, (p1, p2) in enumerate(zip(p1_list, p2_list))}
 
@@ -715,11 +708,23 @@ class Models(object):
                 del match_to_results_dictionary[tuple([10813, 63017])]
                 del match_to_results_dictionary[tuple([50386, 36519])]
                 del match_to_results_dictionary[tuple([9839, 63016])]
+                del match_to_results_dictionary[tuple([59356, 30856])]
+                del match_to_results_dictionary[tuple([63017, 10813])]
+                del match_to_results_dictionary[tuple([36519, 50386])]
+                del match_to_results_dictionary[tuple([63016, 9839])]
                 """
-
                 # THIS IS FOR US OPEN 2017
+
                 del match_to_results_dictionary[tuple([22056, 34511])]
                 del match_to_results_dictionary[tuple([34511, 22056])]
+
+                """
+                #This is for qujing Challengers
+                del match_to_results_dictionary[tuple([17359, 35539])]
+                del match_to_results_dictionary[tuple([45197, 28296])]
+                del match_to_results_dictionary[tuple([35539, 17359])]
+                del match_to_results_dictionary[tuple([28296, 45197])]
+                """
 
                 del index_games_dict_for_prediction[tuple(np.zeros([number_of_features, ]))]
 
@@ -749,11 +754,13 @@ class Models(object):
                         match_to_odds_dictionary[tuple([player1_id, player2_id])] = [odds[1], odds[2]]
                     print("The number of matches left after scraping the ID's of players is {}.".format(count))
                     assert len(p1_list) == len(p2_list)
+                d = collections.OrderedDict()
 
                 index_games_dict_for_prediction = {tuple(self.make_predictions_using_DT(p1, p2, court_type
-                                                                                        , 17000, 7)): [p1, p2]
-                                                   for
-                                                   i, (p1, p2) in enumerate(zip(p1_list, p2_list))}
+                                                                                        , 17000, number_of_features)): [
+                    p1, p2]
+                    for
+                    i, (p1, p2) in enumerate(zip(p1_list, p2_list))}
 
                 features_from_prediction = np.asarray(
                     [np.asarray(feature) for feature in index_games_dict_for_prediction.keys()])
@@ -763,19 +770,6 @@ class Models(object):
             features_from_prediction_final = preprocess_features_of_predictions(features_from_prediction,
                                                                                 standard_deviations)
 
-            # DONT FORGET: IF PLAYERS DO NOT HAVE COMMON OPPONENTS, YOU HAVE TO DELETE THAT ENTRY FROM THE SETS
-            # CURRENTLY WE ARE MANUALLY DELETING RESULTS OF MATCHES WHERE THERE ISN'T ENOUGH COMMON OPPONENTS
-
-            # FOR WIMBLEDON 2018:
-            """  
-           
-            del match_to_results_dictionary[tuple([30856, 59356])]
-            del match_to_results_dictionary[tuple([10813, 63017])]
-            del match_to_results_dictionary[tuple([50386, 36519])]
-            del match_to_results_dictionary[tuple([9839, 63016])]
-            del index_games_dict_for_prediction[tuple(np.zeros([number_of_features, ]))]
-
-            """
             print("index_games_dict_for_prediction length: {}".format(len(index_games_dict_for_prediction)))
             print("features_from_prediction_final length: {}".format(len(features_from_prediction_final)))
             print("match_to_results_dictionary length: {}".format(len(match_to_results_dictionary)))
@@ -855,10 +849,10 @@ class Models(object):
                 ROI = (total_winnings - (bet_amount * len(results))) / (bet_amount * len(results)) * 100
                 print("Our ROI for Wimbledon 2018 was: {}.".format(ROI))
 
-                total_winnings = 0
-                bet_amount = 10
                 correct = 0
                 count = 0
+                winnings = 0
+                result_dict = {}
                 for match, data in predictions.items():
                     match = list(match)
 
@@ -884,14 +878,14 @@ class Models(object):
                     average_probability = np.mean([probability, reverse_prob_2], axis=0).tolist()
 
                     average_probability = [url for l in average_probability for url in l]
-                    print("The average probability for match {} was {}".format(match, average_probability))
+                    # print("The average probability for match {} was {}".format(match, average_probability))
                     higher_prob = max(average_probability)
-                    if higher_prob < 0.80:
+                    if higher_prob < 0.70:
                         continue
                     else:
 
                         prediction = average_probability.index(higher_prob)
-                        if float(odds[abs(int(prediction) - 1)]) < 1.49 :
+                        if float(odds[abs(int(prediction) - 1)]) < 1.49:
                             continue
                         else:
                             count = count + 1
@@ -899,20 +893,24 @@ class Models(object):
                                   "The odds were {}.The odds we chose to bet was {}".format(match, prediction, result,
                                                                                             average_probability
                                                                                             , odds,
-                                                                                            odds[abs(int(prediction) - 1)]))
+                                                                                            odds[abs(
+                                                                                                int(prediction) - 1)]))
 
                             if prediction == result:
                                 correct = correct + 1
-                                # total_winnings = total_winnings + (bet_amount * float(odds[abs(int(prediction) - 1)]))
+                                result_dict[tuple(match)] = [prediction, result, average_probability, odds]
+                                winnings = winnings + (bet_amount * float(odds[abs(int(prediction) - 1)]))
+
                             else:
-                                pass
-                            # total_winnings = total_winnings - bet_amount
-                # print(total_winnings)
+                                winnings = winnings - bet_amount
+                                result_dict[tuple(match)] = [prediction, result, average_probability, odds]
+
                 print(correct)
                 print(count)
                 print(correct / count)
-                # ROI = (total_winnings - (bet_amount * len(predictions))) / (bet_amount * len(predictions)) * 100
-                print("Our ROI for Wimbledon 2018 was: {}.".format(ROI))
+                ROI = (winnings - (bet_amount * (count))) / (bet_amount * (count)) * 100
+                print("Our ROI was: {}.".format(ROI))
+                return result_dict
             if save:
                 joblib.dump(linear_clf, 'DT_Model_3.pkl')
 
@@ -1494,17 +1492,63 @@ DT = Models("updated_stats_v3")  # Initalize the model class with our sqlite3 ad
 # To train an AdaBoost Classifier
 # To train and make predictions on Decision Stump Model
 
+start_time = time.time()
 
-DT.train_decision_stump_model('data_v7.txt', 'label_v7.txt', number_of_features=7, development_mode=False,
-                              prediction_mode=True, historical_tournament=True, save=False, training_mode=False,
-                              test_given_model=False, tournament_pickle_file_name='us_open_2017_odds_v2.pkl',
-                              court_type=1)
+dct = defaultdict(list)
+result_dict = {}
+for i in range(10):
+    result_dict = DT.train_decision_stump_model('data_v7.txt', 'label_v7.txt', number_of_features=7,
+                                                development_mode=False,
+                                                prediction_mode=True, historical_tournament=True, save=False,
+                                                training_mode=False,
+                                                test_given_model=False,
+                                                tournament_pickle_file_name='us_open_2017_odds_v2.pkl',
+                                                court_type=1)
+    for k, v in result_dict.items():
+        dct[k].append(v[0])
+"""
+print("Time took to run this whole thing was --- {} seconds ---".format(time.time() - start_time))
+with open('result.pickle', 'wb') as handle:
+    pickle.dump(dct, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
-"""DT.train_decision_stump_model('data_v6.txt', 'label_v6.txt', number_of_features=7, development_mode=False,
+with open('odds.pickle', 'wb') as handle:
+    pickle.dump(result_dict, handle, protocol=pickle.HIGHEST_PROTOCOL)
+DT.train_decision_stump_model('data_v6.txt', 'label_v6.txt', number_of_features=7, development_mode=False,
                               prediction_mode=True, historical_tournament=True, save=False, training_mode=False,
                               test_given_model=False, tournament_pickle_file_name='wimbledon_2018_odds_v2.pkl',
                               court_type=5)                   
 """
+
+with open('result_us_open.pickle', 'rb') as handle:
+    dict_of_results = pickle.load(handle)
+
+with open('odds_us_open.pickle', 'rb') as handle:
+    odds = pickle.load(handle)
+
+print(dict_of_results)
+print(odds)
+count = 0
+correct = 0
+for match, results in dict_of_results.items():
+    ones = results.count(1)
+    zeros = results.count(0)
+    if (len(results) > 3):
+        most_common_result = Most_Common(results)
+        print(most_common_result)
+        if (results.count(most_common_result) / len(results)) < 0.75:
+            continue
+        else:
+            if match not in odds:
+                continue
+            else:
+                count = count + 1
+                odd = odds[match]
+
+                print("Prediction for match {} was {}. The result was {}. The odds were {}.The odds we chose to bet was"
+                      .format(match, most_common_result, odd[1], odd[3]))
+                if most_common_result == odd[1]:
+                    correct = correct + 1
+print(correct / count)
 
 # To develop and tune hyperparameters for a Decision Stump Model
 
