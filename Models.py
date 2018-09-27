@@ -25,6 +25,41 @@ from sklearn.model_selection import train_test_split
 from OddsScraper import loads_odds_into_a_list
 
 
+def test_final_results(result_file, odds_file):
+    with open(result_file, 'rb') as handle:
+        dict_of_results = pickle.load(handle)
+
+    with open(odds_file, 'rb') as handle:
+        odds = pickle.load(handle)
+
+    print(dict_of_results)
+    print(odds)
+    count = 0
+    correct = 0
+    for match, res in dict_of_results.items():
+
+        if (len(res) > 4):
+            most_common_result = Most_Common(res)
+
+            if (res.count(most_common_result) / len(res)) < 0.75:
+                continue
+            else:
+                if match not in odds:
+                    continue
+                else:
+                    count = count + 1
+                    odd = odds[match]
+
+                    print(
+                        "Prediction for match {} was {}. The result was {}. The odds were {}.The odds we chose to bet was"
+                            .format(match, most_common_result, odd[1], odd[3]))
+                    if most_common_result == odd[1]:
+                        correct = correct + 1
+    print(correct)
+    print(count)
+    print(correct / count)
+
+
 def Most_Common(lst):
     data = Counter(lst)
     return data.most_common(1)[0][0]
@@ -779,7 +814,7 @@ class Models(object):
             results = list(match_to_results_dictionary.values())
             temporary = features_from_prediction_final.tolist()
             # This dictionary ties last version of features to player id's
-            features_match_dictionary = {tuple(temporary[i]): v for i, (k, v) in
+            features_match_dictionary = {tuple(temporary[m]): v for m, (k, v) in
                                          enumerate(index_games_dict_for_prediction.items())}
 
             # WARNING: BLOWING UP THE FEATURE SPACE
@@ -910,7 +945,7 @@ class Models(object):
                 print(correct / count)
                 ROI = (winnings - (bet_amount * (count))) / (bet_amount * (count)) * 100
                 print("Our ROI was: {}.".format(ROI))
-                return result_dict
+                return predictions, result_dict
             if save:
                 joblib.dump(linear_clf, 'DT_Model_3.pkl')
 
@@ -1491,64 +1526,43 @@ DT = Models("updated_stats_v3")  # Initalize the model class with our sqlite3 ad
 
 # To train an AdaBoost Classifier
 # To train and make predictions on Decision Stump Model
-
+"""
 start_time = time.time()
-
 dct = defaultdict(list)
-result_dict = {}
+
 for i in range(10):
-    result_dict = DT.train_decision_stump_model('data_v7.txt', 'label_v7.txt', number_of_features=7,
-                                                development_mode=False,
-                                                prediction_mode=True, historical_tournament=True, save=False,
-                                                training_mode=False,
-                                                test_given_model=False,
-                                                tournament_pickle_file_name='us_open_2017_odds_v2.pkl',
-                                                court_type=1)
+    predictions, result_dict = DT.train_decision_stump_model('data_v7.txt', 'label_v7.txt', number_of_features=7,
+                                                             development_mode=False,
+                                                             prediction_mode=True, historical_tournament=True,
+                                                             save=False,
+                                                             training_mode=False,
+                                                             test_given_model=False,
+                                                             tournament_pickle_file_name='us_open_2017_odds_v2.pkl',
+                                                             court_type=1)
+    if i == 5:
+        with open('odds_us_open.pickle', 'wb') as handle:
+            pickle.dump(predictions, handle, protocol=pickle.HIGHEST_PROTOCOL)
+
     for k, v in result_dict.items():
         dct[k].append(v[0])
-"""
+
+with open('result_us_open.pickle', 'wb') as handle:
+    pickle.dump(dct, handle, protocol=pickle.HIGHEST_PROTOCOL)
+
+
 print("Time took to run this whole thing was --- {} seconds ---".format(time.time() - start_time))
 with open('result.pickle', 'wb') as handle:
     pickle.dump(dct, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
 with open('odds.pickle', 'wb') as handle:
-    pickle.dump(result_dict, handle, protocol=pickle.HIGHEST_PROTOCOL)
+    pickle.dump(predictions, handle, protocol=pickle.HIGHEST_PROTOCOL)
 DT.train_decision_stump_model('data_v6.txt', 'label_v6.txt', number_of_features=7, development_mode=False,
                               prediction_mode=True, historical_tournament=True, save=False, training_mode=False,
                               test_given_model=False, tournament_pickle_file_name='wimbledon_2018_odds_v2.pkl',
                               court_type=5)                   
 """
 
-with open('result_us_open.pickle', 'rb') as handle:
-    dict_of_results = pickle.load(handle)
-
-with open('odds_us_open.pickle', 'rb') as handle:
-    odds = pickle.load(handle)
-
-print(dict_of_results)
-print(odds)
-count = 0
-correct = 0
-for match, results in dict_of_results.items():
-    ones = results.count(1)
-    zeros = results.count(0)
-    if (len(results) > 3):
-        most_common_result = Most_Common(results)
-        print(most_common_result)
-        if (results.count(most_common_result) / len(results)) < 0.75:
-            continue
-        else:
-            if match not in odds:
-                continue
-            else:
-                count = count + 1
-                odd = odds[match]
-
-                print("Prediction for match {} was {}. The result was {}. The odds were {}.The odds we chose to bet was"
-                      .format(match, most_common_result, odd[1], odd[3]))
-                if most_common_result == odd[1]:
-                    correct = correct + 1
-print(correct / count)
+test_final_results('result_us_open.pickle', 'odds_us_open.pickle')
 
 # To develop and tune hyperparameters for a Decision Stump Model
 
