@@ -24,8 +24,12 @@ from sklearn.model_selection import train_test_split
 # Other Classes
 from OddsScraper import loads_odds_into_a_list
 
+# For Amazon EC2 Instance
+import boto.ec2
+import boto3
 
-def test_final_results(result_file, odds_file):
+
+def test_final_results(result_file, odds_file, length_of_guesses):
     with open(result_file, 'rb') as handle:
         dict_of_results = pickle.load(handle)
 
@@ -38,10 +42,11 @@ def test_final_results(result_file, odds_file):
     correct = 0
     for match, res in dict_of_results.items():
 
-        if (len(res) > 4):
+        if (len(res) > length_of_guesses):
             most_common_result = Most_Common(res)
-
-            if (res.count(most_common_result) / len(res)) < 0.75:
+            print(res)
+            print(res.count(most_common_result) / len(res))
+            if (res.count(most_common_result) / len(res)) < 0.70:
                 continue
             else:
                 if match not in odds:
@@ -265,6 +270,10 @@ class Models(object):
         self.predictions_old_feature_to_new_feature_dictionary = defaultdict(list)
         conn.close()
         conn_players.close()
+
+        ec2 = boto3.resource('ec2', region_name='us-east-1')
+        for instance in ec2.instances.all():
+            print(instance.id, instance.state)
 
     def create_feature_set(self, feature_set_name, label_set_name):
         # Takes the dataset created by FeatureExtraction and calculates required features for our model.
@@ -749,10 +758,10 @@ class Models(object):
                 del match_to_results_dictionary[tuple([63016, 9839])]
                 """
                 # THIS IS FOR US OPEN 2017
-
+                """
                 del match_to_results_dictionary[tuple([22056, 34511])]
                 del match_to_results_dictionary[tuple([34511, 22056])]
-
+                """
                 """
                 #This is for qujing Challengers
                 del match_to_results_dictionary[tuple([17359, 35539])]
@@ -761,7 +770,7 @@ class Models(object):
                 del match_to_results_dictionary[tuple([28296, 45197])]
                 """
 
-                del index_games_dict_for_prediction[tuple(np.zeros([number_of_features, ]))]
+                # del index_games_dict_for_prediction[tuple(np.zeros([number_of_features, ]))]
 
             else:
 
@@ -1526,7 +1535,7 @@ DT = Models("updated_stats_v3")  # Initalize the model class with our sqlite3 ad
 
 # To train an AdaBoost Classifier
 # To train and make predictions on Decision Stump Model
-"""
+
 start_time = time.time()
 dct = defaultdict(list)
 
@@ -1537,32 +1546,29 @@ for i in range(10):
                                                              save=False,
                                                              training_mode=False,
                                                              test_given_model=False,
-                                                             tournament_pickle_file_name='us_open_2017_odds_v2.pkl',
+                                                             tournament_pickle_file_name='atp_doha_2017_odds_v2.pkl',
                                                              court_type=1)
     if i == 5:
-        with open('odds_us_open.pickle', 'wb') as handle:
+        with open('doha_predictions.pickle', 'wb') as handle:
             pickle.dump(predictions, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
     for k, v in result_dict.items():
         dct[k].append(v[0])
 
-with open('result_us_open.pickle', 'wb') as handle:
+with open('doha_results.pickle', 'wb') as handle:
     pickle.dump(dct, handle, protocol=pickle.HIGHEST_PROTOCOL)
-
 
 print("Time took to run this whole thing was --- {} seconds ---".format(time.time() - start_time))
-with open('result.pickle', 'wb') as handle:
-    pickle.dump(dct, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
-with open('odds.pickle', 'wb') as handle:
-    pickle.dump(predictions, handle, protocol=pickle.HIGHEST_PROTOCOL)
+"""
 DT.train_decision_stump_model('data_v6.txt', 'label_v6.txt', number_of_features=7, development_mode=False,
                               prediction_mode=True, historical_tournament=True, save=False, training_mode=False,
                               test_given_model=False, tournament_pickle_file_name='wimbledon_2018_odds_v2.pkl',
                               court_type=5)                   
 """
 
-test_final_results('result_us_open.pickle', 'odds_us_open.pickle')
+# test_final_results('result_us_open.pickle', 'odds_us_open.pickle', length_of_guesses=4)
+# test_final_results('result_wimbledon_2018_odds.pickle', 'odds_wimbledon_2018_odds.pickle', length_of_guesses=7)
 
 # To develop and tune hyperparameters for a Decision Stump Model
 
