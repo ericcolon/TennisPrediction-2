@@ -6,6 +6,8 @@ from collections import defaultdict
 from collections import Counter
 from random import random
 import matplotlib.pyplot as plt
+from matplotlib.legend_handler import HandlerLine2D
+
 import numpy as np
 import time
 import pickle
@@ -18,6 +20,8 @@ from sklearn import tree
 from sklearn.ensemble import AdaBoostClassifier  # For Classification
 from sklearn.ensemble import GradientBoostingClassifier  # For Classification
 from sklearn.neighbors import KNeighborsClassifier
+from sklearn.metrics import roc_curve, auc
+
 from sklearn.externals import joblib
 from sklearn.linear_model import SGDClassifier
 from sklearn.model_selection import train_test_split
@@ -29,6 +33,7 @@ from OddsScraper import loads_odds_into_a_list
 import boto3
 # For R-Data conversion
 import feather
+
 
 def convert_dataframe_into_rdata(df):
     path = 'updated_stats.feather'
@@ -164,31 +169,40 @@ def test_svm_model(modelname, dataset_name, labelset_name, split):
                                                                model.score(X_test, y_test)))
 
 
-def tune_sgd_hyperparameters(x_train, y_train, x_dev, y_dev):
-    # [0.00001, 0.0001, 0.001, 0.1, 1, 10] these are the values for alpha
-    parameter_values = [1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 1, 10]
-    xi = [i for i in range(0, len(parameter_values))]
+def tune_dt_parameters(x_train, y_train, x_test, y_test):
+    parameter_values = [2, 4, 8, 16, 20, 32]
 
-    parameter_scores = []
-
+    train_results = []
+    test_results = []
     for param in parameter_values:
-        # We plot different alpha values with their dev accuracies
-        model = SGDClassifier(loss="hinge", alpha=param)
-        model.fit(x_train, y_train)
+        dt = tree.DecisionTreeClassifier(max_depth=param)
+        dt.fit(x_train, y_train)
 
-        acc = model.score(x_dev, y_dev)
-        print(acc)
+        train_pred = dt.predict(x_train)
+        false_positive_rate, true_positive_rate, thresholds = roc_curve(y_train, train_pred)
+        roc_auc = auc(false_positive_rate, true_positive_rate)
+        # Add auc score to previous train results
+        train_results.append(roc_auc)
+        y_pred = dt.predict(x_test)
+        false_positive_rate, true_positive_rate, thresholds = roc_curve(y_test, y_pred)
+        roc_auc = auc(false_positive_rate, true_positive_rate)
+        # Add auc score to previous test results
+        test_results.append(roc_auc)
 
-        parameter_scores.append(acc)
-
-    plt.plot(xi, parameter_scores, marker='o',
-             linestyle='--', color='r', label='alpha')
-
-    plt.xlabel('Loss function for SGD')
-    plt.ylabel('Accuracy of Dev Data in Percentage')
-    plt.xticks(xi, parameter_values)
-    plt.legend()
+    line1, = plt.plot(parameter_values, train_results, 'b', label="Train AUC")
+    line2, = plt.plot(parameter_values, test_results, 'r', label="Test AUC")
+    plt.legend(handler_map={line1: HandlerLine2D(numpoints=2)})
+    plt.ylabel("AUC score")
+    plt.xlabel("Tree depth")
     plt.show()
+
+
+def calculate_time_discount(discount_factor, current_year, game_year):
+    time_since_the_match = abs(current_year - game_year)
+    if time_since_the_match == 1:
+        return discount_factor
+    else:
+        return (discount_factor ** time_since_the_match)
 
 
 # Used in prediction mode of Decision Stump Model
@@ -668,7 +682,7 @@ class Models(object):
             assert len(x_train) + len(x_dev) + len(x_test) == len(x_scaled_no_duplicates)
 
             # WARNING: BLOWING UP THE FEATURE SPACE
-            self.create_100_decision_stumps(x_train, y_train, x_scaled_no_duplicates, 0.5)
+            self.create_100_decision_stumps(x_train, y_train, x_scaled_no_duplicates, 0.2)  # create DT stumps
 
             # these are the new feature and label set we will training SGD Classifier
             decision_stump_features, decision_stump_labels = self.create_new_vector_label_dataset(
@@ -682,16 +696,10 @@ class Models(object):
             dev_data = np.asarray([self.old_feature_to_new_feature_dictionary[tuple(x)] for x in x_dev])
             dev_label = np.asarray([self.old_feature_label_dict[tuple(x)] for x in x_dev])
 
-            # Function to tune SGD Hyperparameters using development data.
-            tune_sgd_hyperparameters(decision_stump_features, decision_stump_labels, dev_data, dev_label)
+            tune_dt_parameters(decision_stump_features, decision_stump_labels, dev_data, dev_label)
 
-            # Even in development mode, we do some testing.
-            linear_clf = SGDClassifier(loss="hinge", eta0=0.01)  # create the tuned classifier
-            linear_clf.fit(decision_stump_features, decision_stump_labels)
-
-            print("Linear SGD classifier training accuracy {}.".format(
-                linear_clf.score(decision_stump_features, decision_stump_labels)))
-            print("Linear SGD classifier testing accuracy {}.".format(linear_clf.score(test_data, test_label)))
+            self.old_feature_to_new_feature_dictionary.clear()
+            self.old_feature_label_dict.clear()
 
         if prediction_mode:
             match_to_odds_dictionary = {}
@@ -1025,15 +1033,18 @@ class Models(object):
             test_data = np.asarray([self.old_feature_to_new_feature_dictionary[tuple(x)] for x in x_test])
             test_label = np.asarray([self.old_feature_label_dict[tuple(x)] for x in x_test])
 
-            # linear_clf = SGDClassifier(loss="hinge", eta0=0.01)  # create the tuned classifier
-
             linear_clf = tree.DecisionTreeClassifier(max_depth=16)
             linear_clf.fit(decision_stump_features, decision_stump_labels)
 
             print("Linear SGD classifier training accuracy {}.".format(
                 linear_clf.score(decision_stump_features, decision_stump_labels)))
             print("Linear SGD classifier testing accuracy {}.".format(linear_clf.score(test_data, test_label)))
-
+            y_pred = linear_clf.predict(test_data)
+            false_positive_rate, true_positive_rate, thresholds = roc_curve(test_label, y_pred)
+            roc_auc = auc(false_positive_rate, true_positive_rate)
+            print("ROC SCORE: {}".format(roc_auc))
+            self.old_feature_to_new_feature_dictionary.clear()
+            self.old_feature_label_dict.clear()
             if save:
                 joblib.dump(linear_clf, 'DT_Model_99.pkl')
 
@@ -1111,88 +1122,85 @@ class Models(object):
                                      (player2_id == game.ID1 and opponent == game.ID2) or (
                                              player2_id == game.ID2 and opponent == game.ID1)]
 
+            # Get the stats from those matches. Weighted by their surface matrix.
             list_of_serveadv_1 = [game.SERVEADV1 * court_dict[current_court_id][
-                game.court_type] * abs(game.year - current_year + 1) * time_discount_factor
+                game.court_type]
                                   if game.ID1 == player1_id else game.SERVEADV2 * court_dict[current_court_id][
-                game.court_type] * abs(game.year - current_year + 1) * time_discount_factor for game in
+                game.court_type] for game in
                                   player1_games_updated]
 
             list_of_serveadv_2 = [game.SERVEADV1 * court_dict[current_court_id][
-                game.court_type] * abs(game.year - current_year + 1) * time_discount_factor
+                game.court_type]
                                   if game.ID1 == player2_id else game.SERVEADV2 * court_dict[current_court_id][
-                game.court_type] * abs(game.year - current_year + 1) * time_discount_factor for game in
+                game.court_type] for game in
                                   player2_games_updated]
 
             list_of_complete_1 = [game.COMPLETE1 * court_dict[current_court_id][
-                game.court_type] * abs(game.year - current_year + 1) * time_discount_factor
+                game.court_type]
                                   if game.ID1 == player1_id else game.COMPLETE2 * court_dict[current_court_id][
-                game.court_type] * abs(game.year - current_year + 1) * time_discount_factor for game in
+                game.court_type] for game in
                                   player1_games_updated]
 
             list_of_complete_2 = [game.COMPLETE1 * court_dict[current_court_id][
-                game.court_type] * abs(game.year - current_year + 1) * time_discount_factor
+                game.court_type]
                                   if game.ID1 == player2_id else game.COMPLETE2 * court_dict[current_court_id][
-                game.court_type] * abs(game.year - current_year + 1) * time_discount_factor for game in
+                game.court_type] for game in
                                   player2_games_updated]
 
             list_of_w1sp_1 = [game.W1SP1 * court_dict[current_court_id][
-                game.court_type] * abs(game.year - current_year + 1) * time_discount_factor
+                game.court_type]
                               if game.ID1 == player1_id else game.W1SP2 * court_dict[current_court_id][
-                game.court_type] * abs(game.year - current_year + 1) * time_discount_factor for game in
+                game.court_type] for game in
                               player1_games_updated]
 
             list_of_w1sp_2 = [game.W1SP1 * court_dict[current_court_id][
-                game.court_type] * abs(game.year - current_year + 1) * time_discount_factor
+                game.court_type]
                               if game.ID1 == player2_id else game.W1SP2 * court_dict[current_court_id][
-                game.court_type] * abs(game.year - current_year + 1) * time_discount_factor for game in
+                game.court_type] for game in
                               player2_games_updated]
 
-            list_of_breaking_points_1 = [game.BP1 * court_dict[current_court_id][game.court_type] * abs(
-                game.year - current_year + 1) * time_discount_factor if game.ID1 == player1_id
-                                         else game.BP2 * court_dict[current_court_id][game.court_type] * abs(
-                game.year - current_year + 1) * time_discount_factor for game in player1_games_updated]
+            list_of_breaking_points_1 = [game.BP1 * court_dict[current_court_id]
+            [game.court_type]
+                                         if game.ID1 == player1_id else game.BP2 * court_dict[current_court_id][
+                game.court_type] for game in
+                                         player1_games_updated]
 
-            list_of_breaking_points_2 = [game.BP1 * court_dict[current_court_id][game.court_type] * abs(
-                game.year - current_year + 1) * time_discount_factor if game.ID1 == player2_id
-                                         else game.BP2 * court_dict[current_court_id][game.court_type] * abs(
-                game.year - current_year + 1) * time_discount_factor for game in player2_games_updated]
+            list_of_breaking_points_2 = [game.BP1 * court_dict[current_court_id][
+                game.court_type]
+                                         if game.ID1 == player2_id else game.BP2 * court_dict[current_court_id][
+                game.court_type] for game in
+                                         player2_games_updated]
 
             # ADDED: ACES PER GAME (NOT PER MATCH)
-            list_of_aces_1 = [game.ACES_1 * court_dict[current_court_id][game.court_type] * abs(
-                game.year - current_year + 1) * time_discount_factor / game.Number_of_games
+            list_of_aces_1 = [game.ACES_1 * court_dict[current_court_id][game.court_type] / game.Number_of_games
                               if game.ID1 == player1_id else game.ACES_2 * court_dict[current_court_id][
-                game.court_type] * abs(game.year - current_year + 1) * time_discount_factor / game.Number_of_games
+                game.court_type] / game.Number_of_games
                               for game in player1_games_updated]
 
-            list_of_aces_2 = [game.ACES_1 * court_dict[current_court_id][game.court_type] * abs(
-                game.year - current_year + 1) * time_discount_factor / game.Number_of_games
+            list_of_aces_2 = [game.ACES_1 * court_dict[current_court_id][game.court_type] / game.Number_of_games
                               if game.ID1 == player2_id else game.ACES_2 * court_dict[current_court_id][
-                game.court_type] * abs(game.year - current_year + 1) * time_discount_factor / game.Number_of_games
+                game.court_type] / game.Number_of_games
                               for game in player2_games_updated]
 
-            list_of_tpw_1 = [game.TPWP1 * court_dict[current_court_id][game.court_type] * abs(
-                game.year - current_year + 1) * time_discount_factor / game.Number_of_games
+            list_of_tpw_1 = [game.TPWP1 * court_dict[current_court_id][game.court_type] / game.Number_of_games
                              if game.ID1 == player1_id else game.TPWP2 * court_dict[current_court_id][
-                game.court_type] * abs(game.year - current_year + 1) * time_discount_factor / game.Number_of_games
+                game.court_type] / game.Number_of_games
                              for game in player1_games_updated]
 
-            list_of_tpw_2 = [game.TPWP1 * court_dict[current_court_id][game.court_type] * abs(
-                game.year - current_year + 1) * time_discount_factor / game.Number_of_games
+            list_of_tpw_2 = [game.TPWP1 * court_dict[current_court_id][game.court_type] / game.Number_of_games
                              if game.ID1 == player2_id else game.TPWP2 * court_dict[current_court_id][
-                game.court_type] * abs(game.year - current_year + 1) * time_discount_factor / game.Number_of_games
+                game.court_type] / game.Number_of_games
                              for game in player2_games_updated]
 
             # List of head to head statistics between two players
-            list_of_h2h_1 = [game.H12H * court_dict[current_court_id][game.court_type] * abs(
-                game.year - current_year + 1) * time_discount_factor
+            list_of_h2h_1 = [game.H12H * court_dict[current_court_id][game.court_type]
                              if game.ID1 == player1_id else game.H21H * court_dict[current_court_id][
-                game.court_type] * abs(game.year - current_year + 1) * time_discount_factor for game in
+                game.court_type] for game in
                              player1_games_updated]
 
-            list_of_h2h_2 = [game.H12H * court_dict[current_court_id][game.court_type] * abs(
-                game.year - current_year + 1) * time_discount_factor
+            list_of_h2h_2 = [game.H12H * court_dict[current_court_id][game.court_type]
                              if game.ID1 == player2_id else game.H21H * court_dict[current_court_id][
-                game.court_type] * abs(game.year - current_year + 1) * time_discount_factor for game in
+                game.court_type] for game in
                              player2_games_updated]
 
             serveadv_1 = s.mean(list_of_serveadv_1)
@@ -1410,157 +1418,6 @@ class Models(object):
                                                                                                           player2_id))
             return np.zeros([number_of_features, ])
 
-    def make_predictions_using_SVM(self, model_name, player1_id, player2_id, current_court_id, curr_tournament):
-        clf = joblib.load(model_name)
-
-        court_dict = collections.defaultdict(dict)
-        court_dict[1][1] = float(1)  # 1 is Hardcourt
-        court_dict[1][2] = 0.28
-        court_dict[1][3] = 0.35
-        court_dict[1][4] = 0.24
-        court_dict[1][5] = 0.24
-        court_dict[1][6] = float(1)
-
-        court_dict[2][1] = 0.28  # 2 is Clay
-        court_dict[2][2] = float(1)
-        court_dict[2][3] = 0.31
-        court_dict[2][4] = 0.14
-        court_dict[2][5] = 0.14
-        court_dict[2][6] = 0.28
-        court_dict[3][1] = 0.35  # 3 is Indoor
-        court_dict[3][2] = 0.31
-        court_dict[3][3] = float(1)
-        court_dict[3][4] = 0.25
-        court_dict[3][5] = 0.25
-        court_dict[3][6] = 0.35
-        court_dict[4][1] = 0.24  # 4 is carpet
-        court_dict[4][2] = 0.14
-        court_dict[4][3] = 0.25
-        court_dict[4][4] = float(1)
-        court_dict[4][5] = float(1)
-        court_dict[4][6] = 0.24
-        court_dict[5][1] = 0.24  # 5 is Grass
-        court_dict[5][2] = 0.14
-        court_dict[5][3] = 0.25
-        court_dict[5][4] = float(1)
-        court_dict[5][5] = float(1)
-        court_dict[5][6] = 0.24
-        court_dict[6][1] = float(1)  # 1 is Acyrlic
-        court_dict[6][2] = 0.28
-        court_dict[6][3] = 0.35
-        court_dict[6][4] = 0.24
-        court_dict[6][5] = 0.24
-        court_dict[6][6] = float(1)
-
-        # All games that two players have played
-        player1_games = self.dataset.loc[np.logical_or(self.dataset.ID1 == player1_id, self.dataset.ID2 == player1_id)]
-
-        player2_games = self.dataset.loc[np.logical_or(self.dataset.ID1 == player2_id, self.dataset.ID2 == player2_id)]
-
-        # This value should be higher than anything else curr_tournament = dataset.at[i, "ID_T"]
-        earlier_games_of_p1 = [game for game in player1_games.itertuples() if
-                               game.ID_T < curr_tournament]
-
-        earlier_games_of_p2 = [game for game in player2_games.itertuples() if
-                               game.ID_T < curr_tournament]
-
-        opponents_of_p1 = [
-            games.ID2 if (player1_id == games.ID1) else
-            games.ID1 for games in earlier_games_of_p1]
-
-        opponents_of_p2 = [
-            games.ID2 if (player2_id == games.ID1) else
-            games.ID1 for games in earlier_games_of_p2]
-
-        sa = set(opponents_of_p1)
-        sb = set(opponents_of_p2)
-
-        # Find common opponents that these players have faced
-        common_opponents = sa.intersection(sb)
-
-        if len(common_opponents) > 5:
-            print("These players have more than 5 common opponents ")
-
-            player1_games_updated = [game for opponent in common_opponents for game in earlier_games_of_p1 if
-                                     (player1_id == game.ID1 and opponent == game.ID2) or (
-                                             player1_id == game.ID2 and opponent == game.ID1)]
-            player2_games_updated = [game for opponent in common_opponents for game in earlier_games_of_p2 if
-                                     (player2_id == game.ID1 and opponent == game.ID2) or (
-                                             player2_id == game.ID2 and opponent == game.ID1)]
-
-            list_of_serveadv_1 = [game.SERVEADV1 * court_dict[current_court_id][
-                game.court_type] if game.ID1 == player1_id else game.SERVEADV2 * court_dict[current_court_id][
-                game.court_type] for game in player1_games_updated]
-
-            list_of_serveadv_2 = [game.SERVEADV1 * court_dict[current_court_id][
-                game.court_type] if game.ID1 == player2_id else game.SERVEADV2 * court_dict[current_court_id][
-                game.court_type] for game in player2_games_updated]
-
-            list_of_complete_1 = [game.COMPLETE1 * court_dict[current_court_id][
-                game.court_type] if game.ID1 == player1_id else game.COMPLETE2 * court_dict[current_court_id][
-                game.court_type] for game in player1_games_updated]
-
-            list_of_complete_2 = [game.COMPLETE1 * court_dict[current_court_id][
-                game.court_type] if game.ID1 == player2_id else game.COMPLETE2 * court_dict[current_court_id][
-                game.court_type] for game in player2_games_updated]
-
-            list_of_w1sp_1 = [game.W1SP1 * court_dict[current_court_id][
-                game.court_type] if game.ID1 == player1_id else game.W1SP2 * court_dict[current_court_id][
-                game.court_type] for game in player1_games_updated]
-
-            list_of_w1sp_2 = [game.W1SP1 * court_dict[current_court_id][
-                game.court_type] if game.ID1 == player2_id else game.W1SP2 * court_dict[current_court_id][
-                game.court_type] for game in player2_games_updated]
-
-            list_of_aces_1 = [game.ACES_1 * court_dict[current_court_id][
-                game.court_type] if game.ID1 == player1_id else game.ACES_2 * court_dict[current_court_id][
-                game.court_type] for game in player1_games_updated]
-
-            list_of_aces_2 = [game.ACES_1 * court_dict[current_court_id][
-                game.court_type] if game.ID1 == player2_id else game.ACES_2 * court_dict[current_court_id][
-                game.court_type] for game in player2_games_updated]
-
-            list_of_h2h_1 = [game.H12H * court_dict[current_court_id][game.court_type]
-                             if game.ID1 == player1_id else game.H21H * court_dict[current_court_id][
-                game.court_type] for game in player1_games_updated]
-
-            list_of_h2h_2 = [game.H12H * court_dict[current_court_id][game.court_type]
-                             if game.ID1 == player2_id else game.H21H * court_dict[current_court_id][
-                game.court_type] for game in player2_games_updated]
-
-            list_of_tpw_1 = [game.TPWP1 * court_dict[current_court_id][game.court_type] / game.Number_of_games
-                             if game.ID1 == player1_id else game.TPWP2 * court_dict[current_court_id][
-                game.court_type] / game.Number_of_games for game in player1_games_updated]
-
-            list_of_tpw_2 = [game.TPWP1 * court_dict[current_court_id][game.court_type] / game.Number_of_games
-                             if game.ID1 == player2_id else game.TPWP2 * court_dict[current_court_id][
-                game.court_type] / game.Number_of_games for game in player2_games_updated]
-
-            serveadv_1 = s.mean(list_of_serveadv_1)
-            serveadv_2 = s.mean(list_of_serveadv_2)
-            complete_1 = s.mean(list_of_complete_1)
-            complete_2 = s.mean(list_of_complete_2)
-            w1sp_1 = s.mean(list_of_w1sp_1)
-            w1sp_2 = s.mean(list_of_w1sp_2)
-            aces_1 = s.mean(list_of_aces_1)
-            aces_2 = s.mean(list_of_aces_2)
-            h2h_1 = s.mean(list_of_h2h_1)
-            h2h_2 = s.mean(list_of_h2h_2)
-            tpw1 = s.mean(list_of_tpw_1)  # Percentage of total points won
-            tpw2 = s.mean(list_of_tpw_2)
-            feature = np.array(
-                [serveadv_1 - serveadv_2, complete_1 - complete_2, w1sp_1 - w1sp_2, aces_1 - aces_2, tpw1 - tpw2,
-                 h2h_1 - h2h_2])
-
-            print("The prediction between player {} and player {} is {}".format(player1_id, player2_id, clf.predict(
-                np.array(feature).reshape(1, -1))))
-
-
-
-        else:
-            print("These players do not have enough common opponents to make predictions")
-            return
-
 
 DT = Models("updated_stats_v3")  # Initalize the model class with our sqlite3 advanced stats database
 
@@ -1603,6 +1460,18 @@ predictions, result_dict = DT.train_decision_stump_model('data_v10_long.txt', 'l
 
 """
 """
+# To train a model and get training and testing accuracy 
+DT.train_decision_stump_model('data_v10_long.txt', 'label_v10_long.txt',
+                              number_of_features=19,
+                              development_mode=False,
+                              prediction_mode=False, historical_tournament=True,
+                              save=False,
+                              training_mode=True,
+                              test_given_model=False,
+                              tournament_pickle_file_name='wimbledon_2018_odds_v2.pkl',
+                              court_type=5)
+"""
+"""
 start_time = time.time()
 dct = defaultdict(list)
 
@@ -1639,17 +1508,3 @@ DT.train_decision_stump_model('data_v6.txt', 'label_v6.txt', number_of_features=
 
 # test_final_results('result_us_open.pickle', 'odds_us_open.pickle', length_of_guesses=4)
 # test_final_results('result_wimbledon_2018_odds.pickle', 'odds_wimbledon_2018_odds.pickle', length_of_guesses=7)
-
-# To develop and tune hyperparameters for a Decision Stump Model
-
-"""
-DT.train_decision_stump_model('data_v6.txt', 'label_v6.txt', number_of_features=7, development_mode=True,
-                             prediction_mode=False, save=False, training_mode=False, test_given_model=False)
-
-"""
-"""
-                       
-Training accuracy for depth 16 DT Classifier on data,label v6. 
-Linear SGD classifier training accuracy 0.8020089460880483.
-Linear SGD classifier testing accuracy 0.7543159822129218.
-"""
