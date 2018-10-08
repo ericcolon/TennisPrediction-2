@@ -35,8 +35,8 @@ import boto3
 import feather
 
 
-def convert_dataframe_into_rdata(df):
-    path = 'updated_stats.feather'
+def convert_dataframe_into_rdata(df, name):
+    path = name
     feather.write_dataframe(df, path)
 
 
@@ -282,8 +282,6 @@ class Models(object):
         self.players = pd.read_sql_query('SELECT * FROM atp_players', conn_players)
         self.players['ID_P'] = self.players['ID_P'].apply(pd.to_numeric)
 
-        # convert_dataframe_into_rdata(self.dataset)
-
         # Dictionaries for Decision Stump Model
         self.old_feature_label_dict = {}
         # A dictionary to map old_features (length 6-1D) to new_features (length 100 1-D)
@@ -307,6 +305,7 @@ class Models(object):
         ten_common_opponents = 0
         x = []
         y = []
+        subset_indexes = []
         court_dict = collections.defaultdict(dict)
         court_dict[1][1] = float(1)  # 1 is Hardcourt
         court_dict[1][2] = 0.28
@@ -350,10 +349,10 @@ class Models(object):
         # with sqlite3.connect('stats.db', detect_types=sqlite3.PARSE_DECLTYPES) as conn:
         #  show_deadline(conn, list(stats))
 
-        # Start c
+        # Start
         for i in reversed(self.dataset.index):
 
-            print(i)
+            print("We are on index {}".format(i))
             player1_id = self.dataset.at[i, "ID1"]
             player2_id = self.dataset.at[i, "ID2"]
             if self.dataset.at[i, 'year'] == "":
@@ -527,6 +526,7 @@ class Models(object):
                     if np.any(np.isnan(feature)):
                         continue
                     else:
+
                         x.append(feature)
                         y.append(label)
 
@@ -541,8 +541,19 @@ class Models(object):
                     if np.any(np.isnan(feature)):
                         continue
                     else:
+                        subset_indexes.append(i)
+
                         x.append(feature)
                         y.append(label)
+
+        # Export this final feature set with labels and all the stats to RData for further analysis
+        subsetted_df = self.dataset.iloc[subset_indexes, :]
+        result_column = pd.Series(y)
+        feature_column = pd.Series(x)
+        subsetted_df.insert(loc=0, column='result', value=result_column)
+        subsetted_df.insert(loc=1, column='feature', value=feature_column)
+
+        convert_dataframe_into_rdata(subsetted_df, "stats.train")
 
         print("{} matches had more than 5 common opponents in the past".format(common_opponents_is_five))
         print("{} matches had more than 10 common opponents in the past".format(ten_common_opponents))
@@ -1422,10 +1433,11 @@ class Models(object):
 DT = Models("updated_stats_v3")  # Initalize the model class with our sqlite3 advanced stats database
 
 # To create the feature and label space
+"""
 data_label = DT.create_feature_set('data_v11.txt', 'label_v11.txt')
 print(len(data_label[0]))
 print(len(data_label[1]))
-
+"""
 # To create an SVM Model
 # DT.train_and_test_svm_model("svm_model_tpw_no_h2h.pkl", 'data_tpw_h2h.txt', 'label_tpw_h2h.txt', True, 0.2)
 # To test the model
@@ -1459,9 +1471,9 @@ predictions, result_dict = DT.train_decision_stump_model('data_v10_long.txt', 'l
                                                          court_type=5)
 
 """
-"""
+
 # To train a model and get training and testing accuracy 
-DT.train_decision_stump_model('data_v10_long.txt', 'label_v10_long.txt',
+DT.train_decision_stump_model('data_v11.txt', 'label_v11.txt',
                               number_of_features=19,
                               development_mode=False,
                               prediction_mode=False, historical_tournament=True,
@@ -1470,7 +1482,18 @@ DT.train_decision_stump_model('data_v10_long.txt', 'label_v10_long.txt',
                               test_given_model=False,
                               tournament_pickle_file_name='wimbledon_2018_odds_v2.pkl',
                               court_type=5)
-"""
+
+# Hyperparameter Tuning for DT Model
+DT.train_decision_stump_model('data_v11.txt', 'label_v11.txt',
+                              number_of_features=19,
+                              development_mode=True,
+                              prediction_mode=False, historical_tournament=True,
+                              save=False,
+                              training_mode=False,
+                              test_given_model=False,
+                              tournament_pickle_file_name='wimbledon_2018_odds_v2.pkl',
+                              court_type=5)
+
 """
 start_time = time.time()
 dct = defaultdict(list)

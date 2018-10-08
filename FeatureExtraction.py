@@ -578,9 +578,10 @@ feature_extraction.extract_players()
 """
 # RUN THIS CODE to extract player sqlite3 database
 
-# feature_extraction.extract_players()
+""" feature_extraction.extract_players()"""
 
-""" This code is to create and calculate a surface matrix 
+#This code is to create and calculate a surface matrix
+""" 
 
 means_and_stds = feature_extraction.create_surface_matrix()
 print(means_and_stds)
