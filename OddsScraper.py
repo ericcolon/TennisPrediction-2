@@ -223,7 +223,7 @@ class OddsScraper(object):
     # Gives the url's of all matches played in the specified HISTORICAL tournament.
     # An example url would be: "http://www.oddsportal.com/tennis/united-kingdom/atp-wimbledon/results/"
     # This would give the odds of 241 Wimbledon 2017 matches.
-    def historical_tournament_odds_scraper(self, url,one_page):
+    def historical_tournament_odds_scraper(self, url, one_page):
         tot_urls = []
         if url_is_alive(url):
             print("URL IS ALIVE.")
@@ -442,7 +442,7 @@ class OddsScraper(object):
             driver.quit()
 
     # Scrapes all the old versions of a specified tournament
-    def historical_odds_for_tournament_scraper(self, url):
+    def scrape_all_versions_of_a_tournament(self, url):
         if url_is_alive(url):
             print("URL IS ALIVE.")
             chromedriver = '/Users/aysekozlu/PyCharmProjects/TennisModel/chromedriver'
@@ -530,8 +530,23 @@ class OddsScraper(object):
         return tournaments_list
 
 
-
 odds_scraper = OddsScraper()
+# Beijing 2018
+"""
+urls = odds_scraper.historical_tournament_odds_scraper("https://www.oddsportal.com/tennis/china/atp-beijing/results/",one_page=True)
+odds_scraper.odds_scraper_for_a_match(urls, "beijing_2018_odds.pkl", save=True)
+"""
+# Tokyo 2018
+"""
+urls = odds_scraper.historical_tournament_odds_scraper("https://www.oddsportal.com/tennis/japan/atp-tokyo/results/",one_page=True)
+odds_scraper.odds_scraper_for_a_match(urls, "tokyo_2018_odds.pkl", save=True)
+"""
+# Wimbledon 2018
+
+"""
+urls = odds_scraper.historical_tournament_odds_scraper("https://www.oddsportal.com/tennis/united-kingdom/atp-wimbledon/results/",one_page=False)
+odds_scraper.odds_scraper_for_a_match(urls, "wimbledon_2018_odds_v2.pkl", save=True)
+"""
 """
 
 #US OPEN 2018
