@@ -355,7 +355,7 @@ class OddsScraper(object):
             driver.quit()
 
     # Scraping the odds and a result of a finished match
-    def odds_scraper_for_a_match(self, match_urls, odds_database_name, save):
+    def odds_scraper_for_a_finished_match(self, match_urls, odds_database_name, save):
 
         # get the fuckin local path
         chromedriver = '/Users/aysekozlu/PyCharmProjects/TennisModel/chromedriver'
@@ -534,25 +534,25 @@ odds_scraper = OddsScraper()
 # Beijing 2018
 """
 urls = odds_scraper.historical_tournament_odds_scraper("https://www.oddsportal.com/tennis/china/atp-beijing/results/",one_page=True)
-odds_scraper.odds_scraper_for_a_match(urls, "beijing_2018_odds.pkl", save=True)
+odds_scraper.odds_scraper_for_a_finished_match(urls, "beijing_2018_odds.pkl", save=True)
 """
 # Tokyo 2018
 """
 urls = odds_scraper.historical_tournament_odds_scraper("https://www.oddsportal.com/tennis/japan/atp-tokyo/results/",one_page=True)
-odds_scraper.odds_scraper_for_a_match(urls, "tokyo_2018_odds.pkl", save=True)
+odds_scraper.odds_scraper_for_a_finished_match(urls, "tokyo_2018_odds.pkl", save=True)
 """
 # Wimbledon 2018
 
 """
 urls = odds_scraper.historical_tournament_odds_scraper("https://www.oddsportal.com/tennis/united-kingdom/atp-wimbledon/results/",one_page=False)
-odds_scraper.odds_scraper_for_a_match(urls, "wimbledon_2018_odds_v2.pkl", save=True)
+odds_scraper.odds_scraper_for_a_finished_match(urls, "wimbledon_2018_odds_v2.pkl", save=True)
 """
+# Auckland 2018
 """
 
-#US OPEN 2018
 urls = odds_scraper.historical_tournament_odds_scraper("http://www.oddsportal.com/tennis/new-zealand/atp-auckland/results/",one_page=True)
 print(len(urls))
-odds_scraper.odds_scraper_for_a_match(urls, "auckland_open_2018_odds_v2.pkl", save=True)
+odds_scraper.odds_scraper_for_a_finished_match(urls, "auckland_open_2018_odds_v2.pkl", save=True)
 """
 
 """
@@ -573,18 +573,9 @@ tot_urls = odds_scraper.historical_odds_for_tournament_scraper(
 
 flatten_urls_list = [url for l in tot_urls for url in l]
 print(len(flatten_urls_list))
-odds_scraper.odds_scraper_for_a_match(flatten_urls_list,'historical_wimbledon_odds', save=True)
+odds_scraper.odds_scraper_for_a_finished_match(flatten_urls_list,'historical_wimbledon_odds', save=True)
 """
 
-# loading wimbledon 2018 odds
-"""
-urls = odds_scraper.tournament_odds_scraper("http://www.oddsportal.com/tennis/united-kingdom/atp-wimbledon/results/","wimbledon_2018_odds_v3")
-print(len(urls))
-
-odds_scraper.odds_scraper_for_a_match(urls, save=True)
-
-
-"""
 
 # odds_scraper.odds_database_search("world_tennis_odds.csv")
 
