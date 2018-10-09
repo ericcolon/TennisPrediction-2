@@ -1,38 +1,34 @@
 # General Imports
 import collections
+import pickle
 import sqlite3
 import statistics as s
-from collections import defaultdict
-from collections import Counter
-from random import random
-import matplotlib.pyplot as plt
-from matplotlib.legend_handler import HandlerLine2D
-
-import numpy as np
 import time
-import pickle
+from collections import Counter
+from collections import defaultdict
+from random import random
+
+import boto3  # For Amazon EC2 Instance
+
+import feather  # For R-Data conversion
+import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
-from sqlalchemy import create_engine
+from matplotlib.legend_handler import HandlerLine2D
 # Sklearn imports
 from sklearn import preprocessing
 from sklearn import svm
 from sklearn import tree
 from sklearn.ensemble import AdaBoostClassifier  # For Classification
 from sklearn.ensemble import GradientBoostingClassifier  # For Classification
-from sklearn.neighbors import KNeighborsClassifier
-from sklearn.metrics import roc_curve, auc
-
 from sklearn.externals import joblib
 from sklearn.linear_model import SGDClassifier
+from sklearn.metrics import roc_curve, auc
 from sklearn.model_selection import train_test_split
-# from sklearn.tree import DecisionTreeClassifier
+from sqlalchemy import create_engine
+
 # Other Classes
 from OddsScraper import loads_odds_into_a_list
-
-# For Amazon EC2 Instance
-import boto3
-# For R-Data conversion
-import feather
 
 
 def convert_dataframe_into_rdata(df, name):
@@ -169,7 +165,8 @@ def test_svm_model(modelname, dataset_name, labelset_name, split):
                                                                model.score(X_test, y_test)))
 
 
-def tune_dt_parameters(x_train, y_train, x_test, y_test):
+# Tune max depth parameter
+def tune_dt_max_depth(x_train, y_train, x_test, y_test):
     parameter_values = [2, 4, 8, 16, 20, 32]
 
     train_results = []
@@ -194,6 +191,80 @@ def tune_dt_parameters(x_train, y_train, x_test, y_test):
     plt.legend(handler_map={line1: HandlerLine2D(numpoints=2)})
     plt.ylabel("AUC score")
     plt.xlabel("Tree depth")
+    plt.show()
+
+
+# Tune min_samples_split parameter
+def tune_dt_min_samples_split(x_train, y_train, x_test, y_test):
+    train_results = []
+    test_results = []
+    min_samples_splits = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 2, 3, 4]
+    for min_samples_split in min_samples_splits:
+        dt = tree.DecisionTreeClassifier( min_samples_split=min_samples_split)
+        dt.fit(x_train, y_train)
+        train_pred = dt.predict(x_train)
+        false_positive_rate, true_positive_rate, thresholds = roc_curve(y_train, train_pred)
+        roc_auc = auc(false_positive_rate, true_positive_rate)
+        train_results.append(roc_auc)
+        y_pred = dt.predict(x_test)
+        false_positive_rate, true_positive_rate, thresholds = roc_curve(y_test, y_pred)
+        roc_auc = auc(false_positive_rate, true_positive_rate)
+        test_results.append(roc_auc)
+    line1, = plt.plot(min_samples_splits, train_results, 'b', label='Train AUC')
+    line2, = plt.plot(min_samples_splits, test_results, 'r', label='Test AUC')
+    plt.legend(handler_map={line1: HandlerLine2D(numpoints=2)})
+    plt.ylabel('AUC score')
+    plt.xlabel('min samples split')
+    plt.show()
+
+
+# Tune min_samples_leaf parameter
+def tune_dt_min_samples_leaf(x_train, y_train, x_test, y_test):
+    min_samples_leafs = np.linspace(0.1, 0.5, 5, endpoint=True)
+    train_results = []
+    test_results = []
+    for min_samples_leaf in min_samples_leafs:
+        dt = tree.DecisionTreeClassifier( min_samples_leaf=min_samples_leaf)
+        dt.fit(x_train, y_train)
+        train_pred = dt.predict(x_train)
+        false_positive_rate, true_positive_rate, thresholds = roc_curve(y_train, train_pred)
+        roc_auc = auc(false_positive_rate, true_positive_rate)
+        train_results.append(roc_auc)
+        y_pred = dt.predict(x_test)
+        false_positive_rate, true_positive_rate, thresholds = roc_curve(y_test, y_pred)
+        roc_auc = auc(false_positive_rate, true_positive_rate)
+        test_results.append(roc_auc)
+
+    line1, = plt.plot(min_samples_leafs, train_results, 'b', label='Train AUC')
+    line2, = plt.plot(min_samples_leafs, test_results, 'r', label='Test AUC')
+    plt.legend(handler_map={line1: HandlerLine2D(numpoints=2)})
+    plt.ylabel('AUC score')
+    plt.xlabel('min samples leaf')
+    plt.show()
+
+
+# Tune max_features parameter
+def tune_dt_max_features(x_train, y_train, x_test, y_test):
+    max_features = list(range(1, 15))
+    train_results = []
+    test_results = []
+    for max_feature in max_features:
+        dt = tree.DecisionTreeClassifier(max_depth=16, max_features=max_feature)
+        dt.fit(x_train, y_train)
+        train_pred = dt.predict(x_train)
+        false_positive_rate, true_positive_rate, thresholds = roc_curve(y_train, train_pred)
+        roc_auc = auc(false_positive_rate, true_positive_rate)
+        train_results.append(roc_auc)
+        y_pred = dt.predict(x_test)
+        false_positive_rate, true_positive_rate, thresholds = roc_curve(y_test, y_pred)
+        roc_auc = auc(false_positive_rate, true_positive_rate)
+        test_results.append(roc_auc)
+
+    line1, = plt.plot(max_features, train_results, 'b', label='Train AUC')
+    line2, = plt.plot(max_features, test_results, 'r', label='Test AUC')
+    plt.legend(handler_map={line1: HandlerLine2D(numpoints=2)})
+    plt.ylabel('AUC score')
+    plt.xlabel('max features')
     plt.show()
 
 
@@ -531,7 +602,8 @@ class Models(object):
                         y.append(label)
 
                 else:
-                    # Else player 1 has lost, so we label it 0. Tht hope is that player 1 is chosen arbitrarily.
+                    # Player 1 has won. We switch Player 2 and Player 1 positions and label it 0 (Player 1 win, player 2 loss).
+                    # This is necessary because our dataset has a specific format where first player always wins.
                     feature = np.array(
                         [serveadv_2, complete_2, w1sp_2, aces_2, bp_2, tpw2, serveadv_1, complete_1, w1sp_1, aces_1,
                          bp_1, tpw1, serveadv_2 - serveadv_1, complete_2 - complete_1, w1sp_2 - w1sp_1, aces_2 - aces_1,
@@ -680,17 +752,18 @@ class Models(object):
             assert tuple(feat) in self.old_feature_label_dict
 
         if development_mode:
+            print("We are in development mode.")
             # This mode is used for hyperparameter optimization
-            x_tr, x_test, y_tr, y_test = train_test_split(x_scaled_no_duplicates, y_no_duplicates, test_size=0.2,
-                                                          shuffle=False)
+            x_train, x_test, y_train, y_test = train_test_split(x_scaled_no_duplicates, y_no_duplicates, test_size=0.25,
+                                                                shuffle=False)
 
-            x_train, x_dev, y_train, y_dev = train_test_split(x_tr, y_tr, test_size=0.2, shuffle=False)
+            # x_train, x_dev, y_train, y_dev = train_test_split(x_tr, y_tr, test_size=0.2, shuffle=False)
 
             print("Size of the training set is: {}.".format((len(x_train))))
-            print("Size of the dev set is: {}.".format((len(x_dev))))
+            # print("Size of the dev set is: {}.".format((len(x_dev))))
             print("Size of the test set is: {}.".format((len(x_test))))
 
-            assert len(x_train) + len(x_dev) + len(x_test) == len(x_scaled_no_duplicates)
+            assert len(x_train) + len(x_test) == len(x_scaled_no_duplicates)
 
             # WARNING: BLOWING UP THE FEATURE SPACE
             self.create_100_decision_stumps(x_train, y_train, x_scaled_no_duplicates, 0.2)  # create DT stumps
@@ -704,20 +777,26 @@ class Models(object):
             test_label = np.asarray([self.old_feature_label_dict[tuple(x)] for x in x_test])
 
             # Development data to 100 length 1d vector
-            dev_data = np.asarray([self.old_feature_to_new_feature_dictionary[tuple(x)] for x in x_dev])
-            dev_label = np.asarray([self.old_feature_label_dict[tuple(x)] for x in x_dev])
+            # dev_data = np.asarray([self.old_feature_to_new_feature_dictionary[tuple(x)] for x in x_dev])
+            # dev_label = np.asarray([self.old_feature_label_dict[tuple(x)] for x in x_dev])
 
-            tune_dt_parameters(decision_stump_features, decision_stump_labels, dev_data, dev_label)
-
+            tune_dt_min_samples_leaf(decision_stump_features, decision_stump_labels, test_data, test_label)
+            tune_dt_max_features(decision_stump_features, decision_stump_labels, test_data, test_label)
+            linear_clf = tree.DecisionTreeClassifier(max_depth = 16)
+            print("Decision Tree model training accuracy {}.".format(
+                linear_clf.score(decision_stump_features, decision_stump_labels)))
+            print("Decision Tree model testing accuracy {}.".format(linear_clf.score(test_data, test_label)))
             self.old_feature_to_new_feature_dictionary.clear()
             self.old_feature_label_dict.clear()
 
         if prediction_mode:
+            print('We are in prediction mode.')
             match_to_odds_dictionary = {}
             match_to_results_dictionary = {}
             p1_list = []
             p2_list = []
             if historical_tournament:
+                print("We are investigating {}.".format(tournament_pickle_file_name))
                 odds_of_wimbledon_2018 = loads_odds_into_a_list(tournament_pickle_file_name)
                 # odds_of_wimbledon_2018.pop(0)  # Nadal vs del Potro UK odds are wrong
                 print(odds_of_wimbledon_2018)
@@ -778,23 +857,28 @@ class Models(object):
 
                 # THIS IS FOR WIMBLEDON 2018
                 """
-                del match_to_results_dictionary[tuple([30856, 59356])]
-                del match_to_results_dictionary[tuple([10813, 63017])]
-                del match_to_results_dictionary[tuple([50386, 36519])]
                 del match_to_results_dictionary[tuple([9839, 63016])]
-                del match_to_results_dictionary[tuple([59356, 30856])]
-                del match_to_results_dictionary[tuple([63017, 10813])]
-                del match_to_results_dictionary[tuple([36519, 50386])]
+                del match_to_results_dictionary[tuple([50386, 36519])]
+                del match_to_results_dictionary[tuple([10813, 63017])]
+                del match_to_results_dictionary[tuple([30856, 59356])]
+
+
+                del match_to_results_dictionary[tuple([11003, 28586])]
                 del match_to_results_dictionary[tuple([63016, 9839])]
-                """
+                del match_to_results_dictionary[tuple([36519, 50386])]
+                del match_to_results_dictionary[tuple([63017, 10813])]
+
+                del match_to_results_dictionary[tuple([59356, 30856])]
+                del match_to_results_dictionary[tuple([28586, 11003])]
+ """
 
                 # THIS IS FOR US OPEN 2017
-
                 """
+
                 del match_to_results_dictionary[tuple([22056, 34511])]
                 del match_to_results_dictionary[tuple([34511, 22056])]
-
                 """
+
                 """
                 #This is for qujing Challengers
                 del match_to_results_dictionary[tuple([17359, 35539])]
@@ -803,7 +887,7 @@ class Models(object):
                 del match_to_results_dictionary[tuple([28296, 45197])]
                 """
                 # THIS IS FOR US OPEN 2018
-                """
+
                 del match_to_results_dictionary[tuple([18495, 29171])]
                 del match_to_results_dictionary[tuple([14606, 34861])]
                 del match_to_results_dictionary[tuple([22428, 25919])]
@@ -828,11 +912,12 @@ class Models(object):
                 del match_to_results_dictionary[tuple([38911, 27082])]
                 del match_to_results_dictionary[tuple([9831, 40609])]
                 del match_to_results_dictionary[tuple([1092, 38911])]
-                
-                 """
+
+                """
                 # For ATP DOHA 2017
                 del match_to_results_dictionary[tuple([30470, 25708])]
                 del match_to_results_dictionary[tuple([25708, 30470])]
+                 """
                 del index_games_dict_for_prediction[tuple(np.zeros([number_of_features, ]))]
 
             else:
@@ -905,23 +990,32 @@ class Models(object):
 
             else:
 
-                linear_clf = tree.DecisionTreeClassifier(max_depth=8)
-                # sgd = SGDClassifier(loss="hinge", eta0=0.0001)  # create the tuned classifier
-                # linear_clf = AdaBoostClassifier(n_estimators=100, base_estimator=sgd, learning_rate=1)
-                # linear_clf = GradientBoostingClassifier(n_estimators=100, learning_rate=1.0, max_depth=8)
+                linear_clf = tree.DecisionTreeClassifier(max_depth=16)
 
-                # linear_clf = SGDClassifier(loss="hinge", eta0=0.01)  # create the tuned classifier
                 linear_clf.fit(decision_stump_features, decision_stump_labels)
+                y_pred = linear_clf.predict(decision_stump_features)
+                false_positive_rate, true_positive_rate, thresholds = roc_curve(decision_stump_labels, y_pred)
+                roc_auc = auc(false_positive_rate, true_positive_rate)
+                print("ROC SCORE for predictions : {}".format(roc_auc))
 
                 print("Decision Tree classifier training accuracy {}.".format(
                     linear_clf.score(decision_stump_features, decision_stump_labels)))
+
                 if historical_tournament:
                     games = np.asarray(
                         [np.asarray(feature) for feature in
                          self.predictions_old_feature_to_new_feature_dictionary.values()])
                     actual_labels = np.asarray(results)
 
-                    print("Wimbledon 2018 Accuracy is {}.".format(linear_clf.score(games, actual_labels)))
+                    print("{} Accuracy is {}.".format(tournament_pickle_file_name,
+                                                      linear_clf.score(games, actual_labels)))
+                    y_pred = linear_clf.predict(games)
+                    false_positive_rate, true_positive_rate, thresholds = roc_curve(actual_labels, y_pred)
+                    roc_auc = auc(false_positive_rate, true_positive_rate)
+                    print("ROC SCORE for predictions : {}".format(roc_auc))
+                    tune_dt_max_depth(decision_stump_features, decision_stump_labels, games, actual_labels)
+
+
                 else:
                     pass
             if historical_tournament:
@@ -945,18 +1039,17 @@ class Models(object):
                                                                                     odds[abs(int(prediction) - 1)]))
 
                     if result == prediction:
-                        total_winnings = total_winnings + (bet_amount * float(odds[abs(int(prediction) - 1)]))
+                        if abs(float(odds[abs(int(prediction) - 1)])) < 20:
+                            total_winnings = total_winnings + (bet_amount * float(odds[abs(int(prediction) - 1)]))
                     else:
                         total_winnings = total_winnings - bet_amount
 
-                    # print("Our total winnings so far is {}".format(total_winnings))
-
-                    print(total_winnings)
+                    print("Our total winnings so far is {}".format(total_winnings))
 
                 print("Total amount of bets we made is: {}".format(bet_amount * len(results)))
                 print(total_winnings)
                 ROI = (total_winnings - (bet_amount * len(results))) / (bet_amount * len(results)) * 100
-                print("Our ROI for Wimbledon 2018 was: {}.".format(ROI))
+                print("Our ROI for {} was: {}.".format(tournament_pickle_file_name, ROI))
 
                 correct = 0
                 count = 0
@@ -1008,7 +1101,8 @@ class Models(object):
                             if prediction == result:
                                 correct = correct + 1
                                 result_dict[tuple(match)] = [prediction, result, average_probability, odds]
-                                winnings = winnings + (bet_amount * float(odds[abs(int(prediction) - 1)]))
+                                if abs(float(odds[abs(int(prediction) - 1)])) < 20:
+                                    winnings = winnings + (bet_amount * float(odds[abs(int(prediction) - 1)]))
 
                             else:
                                 winnings = winnings - bet_amount
@@ -1019,6 +1113,8 @@ class Models(object):
                 print(correct / count)
                 ROI = (winnings - (bet_amount * (count))) / (bet_amount * (count)) * 100
                 print("Our ROI was: {}.".format(ROI))
+                self.old_feature_to_new_feature_dictionary.clear()
+                self.old_feature_label_dict.clear()
                 return predictions, result_dict
             if save:
                 joblib.dump(linear_clf, 'DT_Model_3.pkl')
@@ -1026,7 +1122,7 @@ class Models(object):
         if training_mode:
 
             # We want to train our model and test its training and testing accuracy
-            x_train, x_test, y_train, y_test = train_test_split(x_scaled_no_duplicates, y_no_duplicates, test_size=0.2,
+            x_train, x_test, y_train, y_test = train_test_split(x_scaled_no_duplicates, y_no_duplicates, test_size=0.25,
                                                                 shuffle=False)
             print("Size of the training set is: {}.".format((len(x_train))))
             print("Size of the test set is: {}.".format((len(x_test))))
@@ -1047,9 +1143,9 @@ class Models(object):
             linear_clf = tree.DecisionTreeClassifier(max_depth=16)
             linear_clf.fit(decision_stump_features, decision_stump_labels)
 
-            print("Linear SGD classifier training accuracy {}.".format(
+            print("Decision Tree model training accuracy {}.".format(
                 linear_clf.score(decision_stump_features, decision_stump_labels)))
-            print("Linear SGD classifier testing accuracy {}.".format(linear_clf.score(test_data, test_label)))
+            print("Decision Tree model testing accuracy {}.".format(linear_clf.score(test_data, test_label)))
             y_pred = linear_clf.predict(test_data)
             false_positive_rate, true_positive_rate, thresholds = roc_curve(test_label, y_pred)
             roc_auc = auc(false_positive_rate, true_positive_rate)
@@ -1444,23 +1540,28 @@ print(len(data_label[1]))
 # test_model("svm_model_v4_h2h.pkl", "data_with_h2h.txt", "label_with_h2h.txt", 0.2)
 # test_model("svm_model_v3.pkl", "data_v3.txt", "label_v3.txt", 0.2)
 
-# To train an AdaBoost Classifier
+
 # To train and make predictions on Decision Stump Model
 # US OPEN 2018-17
-"""
-predictions, result_dict = DT.train_decision_stump_model('data_v10_long.txt', 'label_v10_long.txt',
+
+
+
+predictions, result_dict = DT.train_decision_stump_model('data_v11.txt', 'label_v11.txt',
                                                          number_of_features=19,
                                                          development_mode=False,
                                                          prediction_mode=True, historical_tournament=True,
                                                          save=False,
                                                          training_mode=False,
                                                          test_given_model=False,
-                                                         tournament_pickle_file_name='atp_doha_2017_odds_v2.pkl',
+                                                         tournament_pickle_file_name='us_open_2018_odds.pkl',
                                                          court_type=1)
-"""
+
+
+
 # WIMBLEDON 2018
+
 """
-predictions, result_dict = DT.train_decision_stump_model('data_v10_long.txt', 'label_v10_long.txt',
+predictions, result_dict = DT.train_decision_stump_model('data_v11.txt', 'label_v11.txt',
                                                          number_of_features=19,
                                                          development_mode=False,
                                                          prediction_mode=True, historical_tournament=True,
@@ -1470,8 +1571,9 @@ predictions, result_dict = DT.train_decision_stump_model('data_v10_long.txt', 'l
                                                          tournament_pickle_file_name='wimbledon_2018_odds_v2.pkl',
                                                          court_type=5)
 
-"""
 
+"""
+"""
 # To train a model and get training and testing accuracy 
 DT.train_decision_stump_model('data_v11.txt', 'label_v11.txt',
                               number_of_features=19,
@@ -1482,6 +1584,8 @@ DT.train_decision_stump_model('data_v11.txt', 'label_v11.txt',
                               test_given_model=False,
                               tournament_pickle_file_name='wimbledon_2018_odds_v2.pkl',
                               court_type=5)
+"""
+"""
 
 # Hyperparameter Tuning for DT Model
 DT.train_decision_stump_model('data_v11.txt', 'label_v11.txt',
@@ -1493,6 +1597,7 @@ DT.train_decision_stump_model('data_v11.txt', 'label_v11.txt',
                               test_given_model=False,
                               tournament_pickle_file_name='wimbledon_2018_odds_v2.pkl',
                               court_type=5)
+"""
 
 """
 start_time = time.time()
