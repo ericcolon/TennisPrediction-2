@@ -19,16 +19,35 @@ from matplotlib.legend_handler import HandlerLine2D
 from sklearn import preprocessing
 from sklearn import svm
 from sklearn import tree
+from sklearn.ensemble import RandomForestClassifier
 from sklearn.ensemble import AdaBoostClassifier  # For Classification
 from sklearn.ensemble import GradientBoostingClassifier  # For Classification
 from sklearn.externals import joblib
 from sklearn.linear_model import SGDClassifier
-from sklearn.metrics import roc_curve, auc, roc_auc_score
+from sklearn.metrics import roc_curve, auc, roc_auc_score, accuracy_score
+from sklearn.model_selection import StratifiedKFold
 from sklearn.model_selection import train_test_split
 from sqlalchemy import create_engine
 
 # Other Classes
 from OddsScraper import loads_odds_into_a_list
+
+# Inputs
+from sklearn.linear_model import Lasso, ElasticNet
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.preprocessing import StandardScaler
+
+# Data viz
+from mlens.visualization import corr_X_y, corrmat
+
+# Model evaluation
+from mlens.metrics import make_scorer
+from mlens.model_selection import Evaluator
+
+# Ensemble
+from mlens.ensemble import SuperLearner
+
+from scipy.stats import uniform, randint
 
 
 def convert_dataframe_into_rdata(df, name):
@@ -200,7 +219,7 @@ def tune_dt_min_samples_split(x_train, y_train, x_test, y_test):
     test_results = []
     min_samples_splits = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 2, 3, 4]
     for min_samples_split in min_samples_splits:
-        dt = tree.DecisionTreeClassifier(max_depth=4, min_samples_split=min_samples_split)
+        dt = tree.DecisionTreeClassifier(min_samples_split=min_samples_split)
         dt.fit(x_train, y_train)
         train_pred = dt.predict(x_train)
         false_positive_rate, true_positive_rate, thresholds = roc_curve(y_train, train_pred)
@@ -224,7 +243,7 @@ def tune_dt_min_samples_leaf(x_train, y_train, x_test, y_test):
     train_results = []
     test_results = []
     for min_samples_leaf in min_samples_leafs:
-        dt = tree.DecisionTreeClassifier(max_depth=4, min_samples_leaf=min_samples_leaf)
+        dt = tree.DecisionTreeClassifier(min_samples_leaf=min_samples_leaf)
         dt.fit(x_train, y_train)
         train_pred = dt.predict(x_train)
         false_positive_rate, true_positive_rate, thresholds = roc_curve(y_train, train_pred)
@@ -249,7 +268,7 @@ def tune_dt_max_features(x_train, y_train, x_test, y_test):
     train_results = []
     test_results = []
     for max_feature in max_features:
-        dt = tree.DecisionTreeClassifier(max_depth=4, max_features=max_feature)
+        dt = tree.DecisionTreeClassifier(max_features=max_feature)
         dt.fit(x_train, y_train)
         train_pred = dt.predict(x_train)
         false_positive_rate, true_positive_rate, thresholds = roc_curve(y_train, train_pred)
@@ -284,7 +303,7 @@ def preprocess_features_of_predictions(features, standard_deviations):
     # features_scaled = feat / standard_deviations[None, :]  # Scale other features"
     "Uncommented this line for taking out h2h feature"
     # features_final = np.column_stack((features_scaled, h2h_pred))  # Add H2H statistics back to the mix
-    return feat
+    return features_shortened
 
 
 # Helper function to preprocess features and labels before training Decision Stump Model
@@ -310,10 +329,31 @@ def preprocess_features_before_training(features, labels):
     last_x = np.column_stack((x_scaled, h2h))  # Add H2H statistics back to the mix
 
     # We need to get rid of the duplicate values in our dataset. (Around 600 dups. Will check it later)
-    x_scaled_no_duplicates, indices = np.unique(x, axis=0, return_index=True)
+    x_scaled_no_duplicates, indices = np.unique(x_shortened, axis=0, return_index=True)
 
     y_no_duplicates = y[indices]
     return [x_scaled_no_duplicates, y_no_duplicates, standard_deviations]
+
+
+def Stacking(model, X, y, test, n_fold):
+    skf = StratifiedKFold(n_splits=n_fold, random_state=1)
+    # test_pred = np.empty((test.shape[0], 1), float)
+
+    train_pred = np.empty((0, 1), float)
+    for train_index, test_index in skf.split(X, y):
+        print("TRAIN:", train_index, "TEST:", test_index)
+        X_train, X_val = X[train_index], X[test_index]
+        y_train, y_val = y[train_index], y[test_index]
+        print(len(X_train))
+        model.fit(X=X_train, y=y_train)
+        train_pred = np.append(train_pred, model.predict(X_val))
+
+    model.fit(X=X, y=y)
+    test_pred = model.predict(test)
+    print(test_pred.shape)
+    print(train_pred.shape)
+
+    return test_pred.reshape(-1, 1), train_pred
 
 
 class Models(object):
@@ -344,7 +384,7 @@ class Models(object):
         dataset['year'].fillna(2018, inplace=True)
         dataset = dataset.reset_index(drop=True)  # reset indexes if any more rows are dropped
         self.dataset = dataset
-        print(self.dataset.isna().sum())
+        # print(self.dataset.isna().sum())
         for i in (self.dataset.index):
             current_year = float(self.dataset.at[i, 'year'])
             if current_year == "":
@@ -364,9 +404,10 @@ class Models(object):
         conn.close()
         conn_players.close()
 
-        ec2 = boto3.resource('ec2', region_name='us-east-1')
-        for instance in ec2.instances.all():
-            print(instance.id, instance.state)
+        # ec2 = boto3.resource('ec2', region_name='us-east-1')
+        # for instance in ec2.instances.all():
+        #   print(instance.id, instance.state)
+       # convert_dataframe_into_rdata(self.dataset, "dataset.feather")
 
     def create_feature_set(self, feature_set_name, label_set_name):
         # Takes the dataset created by FeatureExtraction and calculates required features for our model.
@@ -610,6 +651,7 @@ class Models(object):
                 if bp_1 == 1 or bp_1 == 0 or bp_2 == 0 or bp_2 == 1:
                     continue
                 # The first feature of our feature set is the last match on the stats dataset
+
                 if random() > 0.5:
                     # Player 1 has won. So we label it 1.
                     feature = np.array(
@@ -622,6 +664,7 @@ class Models(object):
                     if np.any(np.isnan(feature)):
                         continue
                     else:
+                        subset_indexes.append(i)
 
                         x.append(feature)
                         y.append(label)
@@ -639,29 +682,32 @@ class Models(object):
                         continue
                     else:
                         subset_indexes.append(i)
-
                         x.append(feature)
                         y.append(label)
 
         # Export this final feature set with labels and all the stats to RData for further analysis
-        subsetted_df = self.dataset.iloc[subset_indexes, :]
-        result_column = pd.Series(y)
-        feature_column = pd.Series(x)
-        subsetted_df.insert(loc=0, column='result', value=result_column)
-        subsetted_df.insert(loc=1, column='feature', value=feature_column)
-
-        convert_dataframe_into_rdata(subsetted_df, "features.feather")
 
         print("{} matches had more than 5 common opponents in the past".format(common_opponents_is_five))
         print("{} matches had more than 10 common opponents in the past".format(ten_common_opponents))
         print("{} matches 0 common opponents in the past".format(zero_common_opponents))
         print("The total number of matches in our feature set is {}".format(len(x)))
         print("Time took for creating stat features for each match took--- %s seconds ---" % (time.time() - start_time))
-        with open(feature_set_name, "wb") as fp:  # Pickling
-            pickle.dump(x, fp)
+        #  with open(feature_set_name, "wb") as fp:  # Pickling
+        #  pickle.dump(x, fp)
 
-        with open(label_set_name, "wb") as fp:  # Pickling
-            pickle.dump(y, fp)
+        #  with open(label_set_name, "wb") as fp:  # Pickling
+        #    pickle.dump(y, fp)
+
+        # Convert it into an r dataframe
+        subsetted_df = self.dataset.iloc[subset_indexes, :]
+        result_column = pd.Series(list(y))
+        new_x = [a.tolist() for a in x]
+        feature_column = pd.Series((new_x))
+
+        subsetted_df.insert(loc=0, column='result', value=result_column)
+        subsetted_df.insert(loc=0, column='feature', value=feature_column)
+        df2sqlite_v2(subsetted_df, 'feature.db')
+        convert_dataframe_into_rdata(subsetted_df, "features.feather")
 
         return [x, y]
 
@@ -779,7 +825,7 @@ class Models(object):
         if development_mode:
             print("We are in development mode.")
             # This mode is used for hyperparameter optimization
-            x_train, x_test, y_train, y_test = train_test_split(x_scaled_no_duplicates, y_no_duplicates, test_size=0.2,
+            x_train, x_test, y_train, y_test = train_test_split(x_scaled_no_duplicates, y_no_duplicates, test_size=0.3,
                                                                 shuffle=False)
 
             # x_train, x_dev, y_train, y_dev = train_test_split(x_tr, y_tr, test_size=0.2, shuffle=False)
@@ -791,7 +837,7 @@ class Models(object):
             assert len(x_train) + len(x_test) == len(x_scaled_no_duplicates)
 
             # WARNING: BLOWING UP THE FEATURE SPACE
-            self.create_100_decision_stumps(x_train, y_train, x_test, 0.2)  # create DT stumps
+            self.create_100_decision_stumps(x_train, y_train, x_test, 0.4, 4)  # create DT stumps
 
             # these are the new feature and label set we will training SGD Classifier
             decision_stump_x_train, decision_stump_y_train = self.create_new_vector_label_dataset(
@@ -802,7 +848,7 @@ class Models(object):
                 self.old_feature_to_new_feature_dictionary_for_testing)
 
             tune_dt_max_depth(decision_stump_x_train, decision_stump_y_train, decision_stump_x_test,
-                                      decision_stump_y_test)
+                              decision_stump_y_test)
             tune_dt_min_samples_split(decision_stump_x_train, decision_stump_y_train, decision_stump_x_test,
                                       decision_stump_y_test)
 
@@ -811,11 +857,18 @@ class Models(object):
             tune_dt_max_features(decision_stump_x_train, decision_stump_y_train, decision_stump_x_test,
                                  decision_stump_y_test)
 
-            linear_clf = tree.DecisionTreeClassifier(max_depth=16)
-            print("Decision Tree model training accuracy {}.".format(
-                linear_clf.score(decision_stump_x_train, decision_stump_y_train)))
+            linear_clf = tree.DecisionTreeClassifier(max_depth=8, random_state=1)
+            linear_clf.fit(decision_stump_x_test, decision_stump_y_test)
             print("Decision Tree model testing accuracy {}.".format(
+                linear_clf.score(decision_stump_x_train, decision_stump_y_train)))
+            print("Decision Tree model training accuracy {}.".format(
                 linear_clf.score(decision_stump_x_test, decision_stump_y_test)))
+
+            y_pred = linear_clf.predict(decision_stump_x_train)
+            false_positive_rate, true_positive_rate, thresholds = roc_curve(decision_stump_y_train, y_pred)
+            roc_auc = auc(false_positive_rate, true_positive_rate)
+            print("ROC SCORE: {}".format(roc_auc))
+
             self.old_feature_to_new_feature_dictionary.clear()
             self.old_feature_to_new_feature_dictionary_for_testing.clear()
 
@@ -1145,17 +1198,44 @@ class Models(object):
                 joblib.dump(linear_clf, 'DT_Model_3.pkl')
 
         if training_mode:
+            print("We are in training mode")
+
+            linear_clf = tree.DecisionTreeClassifier(max_depth=4)
 
             # We want to train our model and test its training and testing accuracy
-            x_train, x_test, y_train, y_test = train_test_split(x_scaled_no_duplicates, y_no_duplicates, test_size=0.2,
+            x_train, x_test, y_train, y_test = train_test_split(x_scaled_no_duplicates, y_no_duplicates, test_size=0.3,
                                                                 shuffle=False)
+
+            x_train_df = pd.DataFrame(x_train)
+            x_test_df = pd.DataFrame(x_test)
+            y_train_df = pd.DataFrame(y_train)
+            y_test_df = pd.DataFrame(y_test.reshape(-1, 1))
+
             print("Size of the training set is: {}.".format((len(x_train))))
             print("Size of the test set is: {}.".format((len(x_test))))
+
+            test_pred1, train_pred1 = Stacking(model=linear_clf, n_fold=10, X=x_train, test=x_test,
+                                               y=y_train)
+            print(train_pred1.shape)
+            train_pred1 = pd.DataFrame(train_pred1)
+            test_pred1 = pd.DataFrame(test_pred1)
+
+            model2 = RandomForestClassifier()
+            model2.fit(train_pred1, y_train)
+            print(model2.score(test_pred1, y_test.reshape(-1, 1)))
+            # corr_X_y(x_train, y_train, figsize=(16, 10), label_rotation=80, hspace=1, fontsize=14)
+            """
+            ensemble = SuperLearner()
+            ensemble.add(tree.DecisionTreeClassifier(max_depth=8))
+            ensemble.add_meta(tree.DecisionTreeClassifier(max_depth=4))
+            y_pred = ensemble.fit(x_scaled_no_duplicates, y_no_duplicates).predict(x_scaled_no_duplicates)
+            print("Prediction score: %.3f" % accuracy_score(y_pred, y_no_duplicates))
+            """
 
             assert len(x_train) + len(x_test) == len(x_scaled_no_duplicates)
 
             # WARNING: BLOWING UP THE FEATURE SPACE
-            self.create_100_decision_stumps(x_train, y_train, x_test, 0.2)  # create DT stumps
+            self.create_100_decision_stumps(x_train, y_train, x_test, 0.6, 8)  # create DT stumps
 
             # these are the new feature and label set we will training SGD Classifier
             decision_stump_x_train, decision_stump_y_train = self.create_new_vector_label_dataset(
@@ -1167,14 +1247,13 @@ class Models(object):
             print(len(test_data))
             # creating 100 1d vectors from our test dataset
 
-            linear_clf = tree.DecisionTreeClassifier(max_depth=16)
-            linear_clf.fit(decision_stump_x_train, decision_stump_y_train)
+            linear_clf.fit(test_data, test_label)
 
-            print("Decision Tree model training accuracy {}.".format(
+            print("Decision Tree model testing accuracy {}.".format(
                 linear_clf.score(decision_stump_x_train, decision_stump_y_train)))
-            print("Decision Tree model testing accuracy {}.".format(linear_clf.score(test_data, test_label)))
-            y_pred = linear_clf.predict(test_data)
-            false_positive_rate, true_positive_rate, thresholds = roc_curve(test_label, y_pred)
+            print("Decision Tree model training accuracy {}.".format(linear_clf.score(test_data, test_label)))
+            y_pred = linear_clf.predict(decision_stump_x_train)
+            false_positive_rate, true_positive_rate, thresholds = roc_curve(decision_stump_y_train, y_pred)
             roc_auc = auc(false_positive_rate, true_positive_rate)
             print("ROC SCORE: {}".format(roc_auc))
             self.old_feature_to_new_feature_dictionary.clear()
@@ -1211,9 +1290,10 @@ class Models(object):
             print("Time took to train decision stump number "
                   "{} and make predictions was --- {} seconds ---".format(i, time.time() - start_time))
 
-    def create_100_decision_stumps(self, x, y, x_test, test_size):
+    def create_100_decision_stumps(self, x, y, x_test, test_size, d):
         # Now we create and train 100 Decision Stumps.
         # Then predict label of each data point in four fold files (560 data points) and store them in a {vector: label list} dictionary
+        print("100 decision stump depth is {}".format(d))
         for i in range(100):
             start_time = time.time()
 
@@ -1221,7 +1301,7 @@ class Models(object):
             # train a Decision Stump - Classifier
             # original_test = (np.setdiff1d(whole_training_set, x))
             # print("length of original test is {}".format(len(original_test)))
-            clf = tree.DecisionTreeClassifier(max_depth=16)
+            clf = tree.DecisionTreeClassifier(max_depth=d)
             clf.fit(data_train, labels_train)
             for data_point in x:
                 # for each data point in the whole set, predict its label
@@ -1565,11 +1645,11 @@ class Models(object):
 DT = Models("updated_stats_v3")  # Initalize the model class with our sqlite3 advanced stats database
 
 # To create the feature and label space
-"""
-data_label = DT.create_feature_set('data_v12.txt', 'label_v12.txt')
-print(len(data_label[0]))
-print(len(data_label[1]))
-"""
+
+# data_label = DT.create_feature_set('data_v12.txt', 'label_v12.txt')
+# print(len(data_label[0]))
+# print(len(data_label[1]))
+
 # To create an SVM Model
 # DT.train_and_test_svm_model("svm_model_tpw_no_h2h.pkl", 'data_tpw_h2h.txt', 'label_tpw_h2h.txt', True, 0.2)
 # To test the model
@@ -1581,32 +1661,31 @@ print(len(data_label[1]))
 # US OPEN 2018-17
 
 
-"""
-predictions, result_dict = DT.train_decision_stump_model('data_v11.txt', 'label_v11.txt',
+predictions, result_dict = DT.train_decision_stump_model('data_v12.txt', 'label_v12.txt',
                                                          number_of_features=19,
                                                          development_mode=False,
-                                                         prediction_mode=True, historical_tournament=True,
+                                                         prediction_mode=False, historical_tournament=True,
                                                          save=False,
-                                                         training_mode=False,
+                                                         training_mode=True,
                                                          test_given_model=False,
                                                          tournament_pickle_file_name='us_open_2017_odds_v2.pkl',
                                                          court_type=1)
 
- """
-
 # WIMBLEDON 2018
 
 
+"""
 predictions, result_dict = DT.train_decision_stump_model('data_v11.txt', 'label_v11.txt',
                                                          number_of_features=19,
-                                                         development_mode=True,
+                                                         development_mode=False,
                                                          prediction_mode=False, historical_tournament=True,
                                                          save=False,
-                                                         training_mode=False,
+                                                         training_mode=True,
                                                          test_given_model=False,
                                                          tournament_pickle_file_name='wimbledon_2018_odds_v2.pkl',
                                                          court_type=5)
 
+"""
 """
 # To train a model and get training and testing accuracy 
 DT.train_decision_stump_model('data_v11.txt', 'label_v11.txt',

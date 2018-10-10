@@ -1,10 +1,16 @@
 from collections import defaultdict
 
 import boto3
+import numpy as np
+
+test_pred=np.empty((9,1),float)
+train_pred=np.empty((0,1),float)
+print(test_pred)
+print(train_pred)
 
 """
 A tool for retrieving basic information from the running EC2 instances.
-"""
+
 
 # Connect to EC2
 ec2 = boto3.resource('ec2', region_name='us-east-1')
@@ -33,3 +39,4 @@ for instance_id, instance in ec2info.items():
     for key in attributes:
         print("{0}: {1}".format(key, instance[key]))
     print("------")
+"""
