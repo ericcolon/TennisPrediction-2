@@ -19,14 +19,15 @@ from matplotlib.legend_handler import HandlerLine2D
 from sklearn import preprocessing
 from sklearn import svm
 from sklearn import tree
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import RandomForestClassifier, BaggingClassifier
+from sklearn.neighbors import KNeighborsClassifier
 from sklearn.ensemble import AdaBoostClassifier  # For Classification
-from sklearn.ensemble import GradientBoostingClassifier  # For Classification
+from sklearn.ensemble import GradientBoostingClassifier, ExtraTreesClassifier  # For Classification
 from sklearn.externals import joblib
-from sklearn.linear_model import SGDClassifier
+from sklearn.linear_model import SGDClassifier, LogisticRegression
 from sklearn.metrics import roc_curve, auc, roc_auc_score, accuracy_score
-from sklearn.model_selection import StratifiedKFold
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import StratifiedKFold, KFold
+from sklearn.model_selection import train_test_split, cross_val_score
 from sqlalchemy import create_engine
 
 # Other Classes
@@ -336,24 +337,60 @@ def preprocess_features_before_training(features, labels):
 
 
 def Stacking(model, X, y, test, n_fold):
-    skf = StratifiedKFold(n_splits=n_fold, random_state=1)
+    seed = 1
+    skf = StratifiedKFold(n_splits=n_fold, random_state=seed)
     # test_pred = np.empty((test.shape[0], 1), float)
 
     train_pred = np.empty((0, 1), float)
     for train_index, test_index in skf.split(X, y):
-        print("TRAIN:", train_index, "TEST:", test_index)
+        # print("TRAIN:", train_index, "TEST:", test_index)
         X_train, X_val = X[train_index], X[test_index]
         y_train, y_val = y[train_index], y[test_index]
-        print(len(X_train))
-        model.fit(X=X_train, y=y_train)
+        sample_x_train, sample_x_test, sample_y_train, sample_y_test = train_test_split(
+            X, y, test_size=0.5, shuffle=True)
+        # print(len(X_train))
+        model.fit(X=sample_x_train, y=sample_y_train)
         train_pred = np.append(train_pred, model.predict(X_val))
-
-    model.fit(X=X, y=y)
+    sample_x_train, sample_x_test, sample_y_train, sample_y_test = train_test_split(
+        X, y, test_size=0.5, shuffle=True)
+    model.fit(X=sample_x_train, y=sample_y_train)
     test_pred = model.predict(test)
-    print(test_pred.shape)
-    print(train_pred.shape)
+    # print(test_pred.shape)
+    # print(train_pred.shape)
 
     return test_pred.reshape(-1, 1), train_pred
+
+
+def Stacking_with_probability(model, X, y, test, n_fold):
+    seed = 7
+    skf = StratifiedKFold(n_splits=n_fold, random_state=seed)
+
+    train_pred = []
+
+    for train_index, test_index in skf.split(X, y):
+        # print("TRAIN:", train_index, "TEST:", test_index)
+        X_train, X_val = X[train_index], X[test_index]  # training set = x_train, predictions made on x_val
+        y_train, y_val = y[train_index], y[test_index]
+
+        model.fit(X=X_train, y=y_train)
+        train_pred.append((model.predict_proba(X_val)))  # get probability distribution of each predictions
+
+    model.fit(X=X, y=y)  # fit the data on entire train set to get prob. distributions from test set
+    test_pred = model.predict_proba(test)
+    train_pred = [url for l in train_pred for url in l]
+
+    print(np.array(train_pred).shape)
+    print(test_pred.shape)
+    return test_pred, np.array(train_pred)
+
+
+def Bagged_Decision_Trees(split, X, y, num_trees):
+    seed = 7
+    kfold = KFold(n_splits=split, random_state=seed)
+    cart = tree.DecisionTreeClassifier()
+    model = BaggingClassifier(base_estimator=cart, n_estimators=num_trees, random_state=seed)
+    results = cross_val_score(model, X, y, cv=kfold)
+    print("Result of Bagging {} Decision Trees is {}".format(num_trees, results.mean()))
 
 
 class Models(object):
@@ -407,7 +444,6 @@ class Models(object):
         # ec2 = boto3.resource('ec2', region_name='us-east-1')
         # for instance in ec2.instances.all():
         #   print(instance.id, instance.state)
-       # convert_dataframe_into_rdata(self.dataset, "dataset.feather")
 
     def create_feature_set(self, feature_set_name, label_set_name):
         # Takes the dataset created by FeatureExtraction and calculates required features for our model.
@@ -418,7 +454,6 @@ class Models(object):
         ten_common_opponents = 0
         x = []
         y = []
-        subset_indexes = []
         court_dict = collections.defaultdict(dict)
         court_dict[1][1] = float(1)  # 1 is Hardcourt
         court_dict[1][2] = 0.28
@@ -483,7 +518,7 @@ class Models(object):
             current_year = float(self.dataset.at[i, 'year'])
             if current_year == "":
                 current_year = float(2018)
-            time_discount_factor = 0.8
+            time_discount_factor = 0.5
             # Games played earlier than the current tournament we are investigating
             earlier_games_of_p1 = [game for game in player1_games.itertuples() if game.ID_T < curr_tournament]
 
@@ -664,7 +699,6 @@ class Models(object):
                     if np.any(np.isnan(feature)):
                         continue
                     else:
-                        subset_indexes.append(i)
 
                         x.append(feature)
                         y.append(label)
@@ -681,7 +715,7 @@ class Models(object):
                     if np.any(np.isnan(feature)):
                         continue
                     else:
-                        subset_indexes.append(i)
+
                         x.append(feature)
                         y.append(label)
 
@@ -692,22 +726,11 @@ class Models(object):
         print("{} matches 0 common opponents in the past".format(zero_common_opponents))
         print("The total number of matches in our feature set is {}".format(len(x)))
         print("Time took for creating stat features for each match took--- %s seconds ---" % (time.time() - start_time))
-        #  with open(feature_set_name, "wb") as fp:  # Pickling
-        #  pickle.dump(x, fp)
+        with open(feature_set_name, "wb") as fp:  # Pickling
+            pickle.dump(x, fp)
 
-        #  with open(label_set_name, "wb") as fp:  # Pickling
-        #    pickle.dump(y, fp)
-
-        # Convert it into an r dataframe
-        subsetted_df = self.dataset.iloc[subset_indexes, :]
-        result_column = pd.Series(list(y))
-        new_x = [a.tolist() for a in x]
-        feature_column = pd.Series((new_x))
-
-        subsetted_df.insert(loc=0, column='result', value=result_column)
-        subsetted_df.insert(loc=0, column='feature', value=feature_column)
-        df2sqlite_v2(subsetted_df, 'feature.db')
-        convert_dataframe_into_rdata(subsetted_df, "features.feather")
+        with open(label_set_name, "wb") as fp:  # Pickling
+            pickle.dump(y, fp)
 
         return [x, y]
 
@@ -837,7 +860,7 @@ class Models(object):
             assert len(x_train) + len(x_test) == len(x_scaled_no_duplicates)
 
             # WARNING: BLOWING UP THE FEATURE SPACE
-            self.create_100_decision_stumps(x_train, y_train, x_test, 0.4, 4)  # create DT stumps
+            self.create_100_decision_stumps(x_train, y_train, x_test, 0., 4)  # create DT stumps
 
             # these are the new feature and label set we will training SGD Classifier
             decision_stump_x_train, decision_stump_y_train = self.create_new_vector_label_dataset(
@@ -857,7 +880,7 @@ class Models(object):
             tune_dt_max_features(decision_stump_x_train, decision_stump_y_train, decision_stump_x_test,
                                  decision_stump_y_test)
 
-            linear_clf = tree.DecisionTreeClassifier(max_depth=8, random_state=1)
+            linear_clf = tree.DecisionTreeClassifier(max_depth=8)
             linear_clf.fit(decision_stump_x_test, decision_stump_y_test)
             print("Decision Tree model testing accuracy {}.".format(
                 linear_clf.score(decision_stump_x_train, decision_stump_y_train)))
@@ -1200,42 +1223,49 @@ class Models(object):
         if training_mode:
             print("We are in training mode")
 
-            linear_clf = tree.DecisionTreeClassifier(max_depth=4)
+            # Bagged_Decision_Trees(5, x_scaled_no_duplicates, y_no_duplicates, 10)
 
+            linear_clf = tree.DecisionTreeClassifier(max_depth=8)
+            # tree.DecisionTreeClassifier(max_depth=8)
+            seed = 7
             # We want to train our model and test its training and testing accuracy
-            x_train, x_test, y_train, y_test = train_test_split(x_scaled_no_duplicates, y_no_duplicates, test_size=0.3,
-                                                                shuffle=False)
-
-            x_train_df = pd.DataFrame(x_train)
-            x_test_df = pd.DataFrame(x_test)
-            y_train_df = pd.DataFrame(y_train)
-            y_test_df = pd.DataFrame(y_test.reshape(-1, 1))
+            x_train, x_test, y_train, y_test = train_test_split(x_scaled_no_duplicates, y_no_duplicates, test_size=0.2,
+                                                                shuffle=True)  # random_state=0
 
             print("Size of the training set is: {}.".format((len(x_train))))
             print("Size of the test set is: {}.".format((len(x_test))))
 
-            test_pred1, train_pred1 = Stacking(model=linear_clf, n_fold=10, X=x_train, test=x_test,
-                                               y=y_train)
-            print(train_pred1.shape)
-            train_pred1 = pd.DataFrame(train_pred1)
-            test_pred1 = pd.DataFrame(test_pred1)
+            # Adding class probabilities from different algorithms to our feature set ( LEVEL 0)
+            x_train_df, x_test_df = self.add_class_probabilities_to_features(
+                ExtraTreesClassifier(n_estimators=20),
+                x_train, x_test, y_train)
 
-            model2 = RandomForestClassifier()
-            model2.fit(train_pred1, y_train)
-            print(model2.score(test_pred1, y_test.reshape(-1, 1)))
+            x_train_df, x_test_df = self.add_class_probabilities_to_features(
+                KNeighborsClassifier(n_neighbors=5), x_train_df.values, x_test_df.values, y_train)
+
+            x_train_df, x_test_df = self.add_class_probabilities_to_features(
+                BaggingClassifier(base_estimator=tree.DecisionTreeClassifier(max_depth=4), n_estimators=20,
+                                  random_state=seed), x_train_df.values, x_test_df.values, y_train)
+            # We stack them and run ExtraTreesClassifier on top of it
+            self.calculate_accuracy_and_roc_score(LogisticRegression(random_state=0, solver='lbfgs'), x_train_df.values,
+                                                  y_train,
+                                                  x_test_df.values, y_test)
+            #
+
             # corr_X_y(x_train, y_train, figsize=(16, 10), label_rotation=80, hspace=1, fontsize=14)
-            """
+
             ensemble = SuperLearner()
-            ensemble.add(tree.DecisionTreeClassifier(max_depth=8))
-            ensemble.add_meta(tree.DecisionTreeClassifier(max_depth=4))
+            ensemble.add(tree.DecisionTreeClassifier(max_depth=8),
+                         BaggingClassifier(base_estimator=tree.DecisionTreeClassifier(), n_estimators=100,
+                                           random_state=1))
+            ensemble.add_meta(ExtraTreesClassifier(n_estimators=100))
             y_pred = ensemble.fit(x_scaled_no_duplicates, y_no_duplicates).predict(x_scaled_no_duplicates)
             print("Prediction score: %.3f" % accuracy_score(y_pred, y_no_duplicates))
-            """
 
             assert len(x_train) + len(x_test) == len(x_scaled_no_duplicates)
 
             # WARNING: BLOWING UP THE FEATURE SPACE
-            self.create_100_decision_stumps(x_train, y_train, x_test, 0.6, 8)  # create DT stumps
+            self.create_100_decision_stumps(x_train, y_train, x_test, 0.5, 8)  # create DT stumps
 
             # these are the new feature and label set we will training SGD Classifier
             decision_stump_x_train, decision_stump_y_train = self.create_new_vector_label_dataset(
@@ -1247,13 +1277,13 @@ class Models(object):
             print(len(test_data))
             # creating 100 1d vectors from our test dataset
 
-            linear_clf.fit(test_data, test_label)
+            linear_clf.fit(decision_stump_x_train, decision_stump_y_train)
 
-            print("Decision Tree model testing accuracy {}.".format(
+            print("Decision Tree model training accuracy {}.".format(
                 linear_clf.score(decision_stump_x_train, decision_stump_y_train)))
-            print("Decision Tree model training accuracy {}.".format(linear_clf.score(test_data, test_label)))
-            y_pred = linear_clf.predict(decision_stump_x_train)
-            false_positive_rate, true_positive_rate, thresholds = roc_curve(decision_stump_y_train, y_pred)
+            print("Decision Tree model testing accuracy {}.".format(linear_clf.score(test_data, test_label)))
+            y_pred = linear_clf.predict(test_data)
+            false_positive_rate, true_positive_rate, thresholds = roc_curve(test_label, y_pred)
             roc_auc = auc(false_positive_rate, true_positive_rate)
             print("ROC SCORE: {}".format(roc_auc))
             self.old_feature_to_new_feature_dictionary.clear()
@@ -1261,6 +1291,38 @@ class Models(object):
 
             if save:
                 joblib.dump(linear_clf, 'DT_Model_99.pkl')
+
+    def add_class_probabilities_to_features(self, model, x_train, x_test, y_train):
+
+        x_train_df = pd.DataFrame(x_train)
+        x_test_df = pd.DataFrame(x_test)
+        test_pred1, train_pred1 = Stacking_with_probability(model, n_fold=10, X=x_train,
+                                                            test=x_test,
+                                                            y=y_train)
+
+        x_train_df = pd.concat([x_train_df, pd.DataFrame(train_pred1[:, 0])], axis=1)
+        x_test_df = pd.concat([x_test_df, pd.DataFrame(test_pred1[:, 0])], axis=1)
+
+        print(x_train_df.shape)
+        print(x_test_df.shape)
+
+        x_train_df = pd.concat([x_train_df, pd.DataFrame(train_pred1[:, 1])], axis=1)
+        x_test_df = pd.concat([x_test_df, pd.DataFrame(test_pred1[:, 1])], axis=1)
+
+        print(x_train_df.shape)
+        print(x_test_df.shape)
+        return [x_train_df, x_test_df]
+
+    def calculate_accuracy_and_roc_score(self, linear_clf, train_pred, y_train, test_pred, y_test):
+        linear_clf.fit(train_pred, y_train)
+        # print("Feature Importances {}".format(linear_clf.feature_importances_))
+        y_pred = linear_clf.predict(test_pred)
+        false_positive_rate, true_positive_rate, thresholds = roc_curve(y_test, y_pred)
+        roc_auc = auc(false_positive_rate, true_positive_rate)
+        linear_clf.fit(train_pred, y_train)
+        print("Training Accuracy {}".format(linear_clf.score(train_pred, y_train)))
+        print("Testing Accuracy {}".format(linear_clf.score(test_pred, y_test)))
+        print("ROC SCORE: {}".format(roc_auc))
 
     def create_100_decision_stumps_include_predictions(self, x, y, whole_training_set, test_size, predictions):
         for i in range(100):
@@ -1646,9 +1708,9 @@ DT = Models("updated_stats_v3")  # Initalize the model class with our sqlite3 ad
 
 # To create the feature and label space
 
-# data_label = DT.create_feature_set('data_v12.txt', 'label_v12.txt')
-# print(len(data_label[0]))
-# print(len(data_label[1]))
+data_label = DT.create_feature_set('data_v13_discount_05.txt', 'label_v13_discount_05.txt')
+print(len(data_label[0]))
+print(len(data_label[1]))
 
 # To create an SVM Model
 # DT.train_and_test_svm_model("svm_model_tpw_no_h2h.pkl", 'data_tpw_h2h.txt', 'label_tpw_h2h.txt', True, 0.2)
