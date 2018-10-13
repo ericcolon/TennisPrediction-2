@@ -1630,7 +1630,7 @@ DT = Models("updated_stats_v3")  # Initalize the model class with our sqlite3 ad
 # US OPEN 2018-17
 
 
-predictions, result_dict = DT.train_decision_stump_model('data_v13_dicscount_05.txt', 'label_v13_dicscount_05.txt',
+predictions, result_dict = DT.train_decision_stump_model('data_v13_discount_05.txt', 'label_v13_discount_05.txt',
                                                          number_of_features=19,
                                                          development_mode=False,
                                                          prediction_mode=False, historical_tournament=True,
