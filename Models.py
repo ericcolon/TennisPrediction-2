@@ -19,16 +19,36 @@ from matplotlib.legend_handler import HandlerLine2D
 from sklearn import preprocessing
 from sklearn import svm
 from sklearn import tree
+from sklearn.ensemble import RandomForestClassifier, BaggingClassifier
+from sklearn.neighbors import KNeighborsClassifier
 from sklearn.ensemble import AdaBoostClassifier  # For Classification
-from sklearn.ensemble import GradientBoostingClassifier  # For Classification
+from sklearn.ensemble import GradientBoostingClassifier, ExtraTreesClassifier  # For Classification
 from sklearn.externals import joblib
-from sklearn.linear_model import SGDClassifier
-from sklearn.metrics import roc_curve, auc
-from sklearn.model_selection import train_test_split
+from sklearn.linear_model import SGDClassifier, LogisticRegression
+from sklearn.metrics import roc_curve, auc, roc_auc_score, accuracy_score
+from sklearn.model_selection import StratifiedKFold, KFold
+from sklearn.model_selection import train_test_split, cross_val_score
 from sqlalchemy import create_engine
 
 # Other Classes
 from OddsScraper import loads_odds_into_a_list
+
+# Inputs
+from sklearn.linear_model import Lasso, ElasticNet
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.preprocessing import StandardScaler
+
+# Data viz
+from mlens.visualization import corr_X_y, corrmat
+
+# Model evaluation
+from mlens.metrics import make_scorer
+from mlens.model_selection import Evaluator
+
+# Ensemble
+from mlens.ensemble import SuperLearner
+
+from scipy.stats import uniform, randint
 
 
 def convert_dataframe_into_rdata(df, name):
@@ -200,7 +220,7 @@ def tune_dt_min_samples_split(x_train, y_train, x_test, y_test):
     test_results = []
     min_samples_splits = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 2, 3, 4]
     for min_samples_split in min_samples_splits:
-        dt = tree.DecisionTreeClassifier( min_samples_split=min_samples_split)
+        dt = tree.DecisionTreeClassifier(min_samples_split=min_samples_split)
         dt.fit(x_train, y_train)
         train_pred = dt.predict(x_train)
         false_positive_rate, true_positive_rate, thresholds = roc_curve(y_train, train_pred)
@@ -224,7 +244,7 @@ def tune_dt_min_samples_leaf(x_train, y_train, x_test, y_test):
     train_results = []
     test_results = []
     for min_samples_leaf in min_samples_leafs:
-        dt = tree.DecisionTreeClassifier( min_samples_leaf=min_samples_leaf)
+        dt = tree.DecisionTreeClassifier(min_samples_leaf=min_samples_leaf)
         dt.fit(x_train, y_train)
         train_pred = dt.predict(x_train)
         false_positive_rate, true_positive_rate, thresholds = roc_curve(y_train, train_pred)
@@ -249,7 +269,7 @@ def tune_dt_max_features(x_train, y_train, x_test, y_test):
     train_results = []
     test_results = []
     for max_feature in max_features:
-        dt = tree.DecisionTreeClassifier(max_depth=16, max_features=max_feature)
+        dt = tree.DecisionTreeClassifier(max_features=max_feature)
         dt.fit(x_train, y_train)
         train_pred = dt.predict(x_train)
         false_positive_rate, true_positive_rate, thresholds = roc_curve(y_train, train_pred)
@@ -316,6 +336,63 @@ def preprocess_features_before_training(features, labels):
     return [x_scaled_no_duplicates, y_no_duplicates, standard_deviations]
 
 
+def Stacking(model, X, y, test, n_fold):
+    seed = 1
+    skf = StratifiedKFold(n_splits=n_fold, random_state=seed)
+    # test_pred = np.empty((test.shape[0], 1), float)
+
+    train_pred = np.empty((0, 1), float)
+    for train_index, test_index in skf.split(X, y):
+        # print("TRAIN:", train_index, "TEST:", test_index)
+        X_train, X_val = X[train_index], X[test_index]
+        y_train, y_val = y[train_index], y[test_index]
+        sample_x_train, sample_x_test, sample_y_train, sample_y_test = train_test_split(
+            X, y, test_size=0.5, shuffle=True)
+        # print(len(X_train))
+        model.fit(X=sample_x_train, y=sample_y_train)
+        train_pred = np.append(train_pred, model.predict(X_val))
+    sample_x_train, sample_x_test, sample_y_train, sample_y_test = train_test_split(
+        X, y, test_size=0.5, shuffle=True)
+    model.fit(X=sample_x_train, y=sample_y_train)
+    test_pred = model.predict(test)
+    # print(test_pred.shape)
+    # print(train_pred.shape)
+
+    return test_pred.reshape(-1, 1), train_pred
+
+
+def Stacking_with_probability(model, X, y, test, n_fold):
+    seed = 7
+    skf = StratifiedKFold(n_splits=n_fold, random_state=seed)
+
+    train_pred = []
+
+    for train_index, test_index in skf.split(X, y):
+        # print("TRAIN:", train_index, "TEST:", test_index)
+        X_train, X_val = X[train_index], X[test_index]  # training set = x_train, predictions made on x_val
+        y_train, y_val = y[train_index], y[test_index]
+
+        model.fit(X=X_train, y=y_train)
+        train_pred.append((model.predict_proba(X_val)))  # get probability distribution of each predictions
+
+    model.fit(X=X, y=y)  # fit the data on entire train set to get prob. distributions from test set
+    test_pred = model.predict_proba(test)
+    train_pred = [url for l in train_pred for url in l]
+
+    print(np.array(train_pred).shape)
+    print(test_pred.shape)
+    return test_pred, np.array(train_pred)
+
+
+def Bagged_Decision_Trees(split, X, y, num_trees):
+    seed = 7
+    kfold = KFold(n_splits=split, random_state=seed)
+    cart = tree.DecisionTreeClassifier()
+    model = BaggingClassifier(base_estimator=cart, n_estimators=num_trees, random_state=seed)
+    results = cross_val_score(model, X, y, cv=kfold)
+    print("Result of Bagging {} Decision Trees is {}".format(num_trees, results.mean()))
+
+
 class Models(object):
 
     # TODO try gradient boosted regression trees. link: https://www.youtube.com/watch?v=IXZKgIsZRm0&t=892s
@@ -344,7 +421,7 @@ class Models(object):
         dataset['year'].fillna(2018, inplace=True)
         dataset = dataset.reset_index(drop=True)  # reset indexes if any more rows are dropped
         self.dataset = dataset
-        print(self.dataset.isna().sum())
+        # print(self.dataset.isna().sum())
         for i in (self.dataset.index):
             current_year = float(self.dataset.at[i, 'year'])
             if current_year == "":
@@ -357,15 +434,16 @@ class Models(object):
         self.old_feature_label_dict = {}
         # A dictionary to map old_features (length 6-1D) to new_features (length 100 1-D)
         self.old_feature_to_new_feature_dictionary = defaultdict(list)
-        self.new_feature_to_label_dictionary = {}
+        self.old_feature_to_new_feature_dictionary_for_testing = defaultdict(list)
+
         # Only used for prediction mode
         self.predictions_old_feature_to_new_feature_dictionary = defaultdict(list)
         conn.close()
         conn_players.close()
 
-        ec2 = boto3.resource('ec2', region_name='us-east-1')
-        for instance in ec2.instances.all():
-            print(instance.id, instance.state)
+        # ec2 = boto3.resource('ec2', region_name='us-east-1')
+        # for instance in ec2.instances.all():
+        #   print(instance.id, instance.state)
 
     def create_feature_set(self, feature_set_name, label_set_name):
         # Takes the dataset created by FeatureExtraction and calculates required features for our model.
@@ -376,7 +454,6 @@ class Models(object):
         ten_common_opponents = 0
         x = []
         y = []
-        subset_indexes = []
         court_dict = collections.defaultdict(dict)
         court_dict[1][1] = float(1)  # 1 is Hardcourt
         court_dict[1][2] = 0.28
@@ -441,7 +518,7 @@ class Models(object):
             current_year = float(self.dataset.at[i, 'year'])
             if current_year == "":
                 current_year = float(2018)
-            time_discount_factor = 0.8
+            time_discount_factor = 0.5
             # Games played earlier than the current tournament we are investigating
             earlier_games_of_p1 = [game for game in player1_games.itertuples() if game.ID_T < curr_tournament]
 
@@ -488,83 +565,107 @@ class Models(object):
 
                 # Get the stats from those matches. Weighted by their surface matrix.
                 list_of_serveadv_1 = [game.SERVEADV1 * court_dict[current_court_id][
-                    game.court_type]
+                    game.court_type] * calculate_time_discount(time_discount_factor, current_year, game.year)
                                       if game.ID1 == player1_id else game.SERVEADV2 * court_dict[current_court_id][
-                    game.court_type] for game in
+                    game.court_type] * calculate_time_discount(time_discount_factor, current_year, game.year) for game
+                                      in
                                       player1_games_updated]
 
                 list_of_serveadv_2 = [game.SERVEADV1 * court_dict[current_court_id][
-                    game.court_type]
+                    game.court_type] * calculate_time_discount(time_discount_factor, current_year, game.year)
                                       if game.ID1 == player2_id else game.SERVEADV2 * court_dict[current_court_id][
-                    game.court_type] for game in
+                    game.court_type] * calculate_time_discount(time_discount_factor, current_year, game.year) for game
+                                      in
                                       player2_games_updated]
 
                 list_of_complete_1 = [game.COMPLETE1 * court_dict[current_court_id][
-                    game.court_type]
+                    game.court_type] * calculate_time_discount(time_discount_factor, current_year, game.year)
                                       if game.ID1 == player1_id else game.COMPLETE2 * court_dict[current_court_id][
-                    game.court_type] for game in
+                    game.court_type] * calculate_time_discount(time_discount_factor, current_year, game.year) for game
+                                      in
                                       player1_games_updated]
 
                 list_of_complete_2 = [game.COMPLETE1 * court_dict[current_court_id][
-                    game.court_type]
+                    game.court_type] * calculate_time_discount(time_discount_factor, current_year, game.year)
                                       if game.ID1 == player2_id else game.COMPLETE2 * court_dict[current_court_id][
-                    game.court_type] for game in
+                    game.court_type] * calculate_time_discount(time_discount_factor, current_year, game.year) for game
+                                      in
                                       player2_games_updated]
 
                 list_of_w1sp_1 = [game.W1SP1 * court_dict[current_court_id][
-                    game.court_type]
+                    game.court_type] * calculate_time_discount(time_discount_factor, current_year, game.year)
                                   if game.ID1 == player1_id else game.W1SP2 * court_dict[current_court_id][
-                    game.court_type] for game in
+                    game.court_type] * calculate_time_discount(time_discount_factor, current_year, game.year) for game
+                                  in
                                   player1_games_updated]
 
                 list_of_w1sp_2 = [game.W1SP1 * court_dict[current_court_id][
-                    game.court_type]
+                    game.court_type] * calculate_time_discount(time_discount_factor, current_year, game.year)
                                   if game.ID1 == player2_id else game.W1SP2 * court_dict[current_court_id][
-                    game.court_type] for game in
+                    game.court_type] * calculate_time_discount(time_discount_factor, current_year, game.year) for game
+                                  in
                                   player2_games_updated]
 
                 list_of_breaking_points_1 = [game.BP1 * court_dict[current_court_id]
-                [game.court_type]
+                [game.court_type] * calculate_time_discount(time_discount_factor, current_year, game.year)
                                              if game.ID1 == player1_id else game.BP2 * court_dict[current_court_id][
-                    game.court_type] for game in
+                    game.court_type] * calculate_time_discount(time_discount_factor, current_year, game.year) for game
+                                             in
                                              player1_games_updated]
 
                 list_of_breaking_points_2 = [game.BP1 * court_dict[current_court_id][
-                    game.court_type]
+                    game.court_type] * calculate_time_discount(time_discount_factor, current_year, game.year)
                                              if game.ID1 == player2_id else game.BP2 * court_dict[current_court_id][
-                    game.court_type] for game in
+                    game.court_type] * calculate_time_discount(time_discount_factor, current_year, game.year) for game
+                                             in
                                              player2_games_updated]
 
                 # ADDED: ACES PER GAME (NOT PER MATCH)
-                list_of_aces_1 = [game.ACES_1 * court_dict[current_court_id][game.court_type] / game.Number_of_games
+                list_of_aces_1 = [game.ACES_1 * court_dict[current_court_id][game.court_type]
+                                  * calculate_time_discount(time_discount_factor, current_year,
+                                                            game.year) / game.Number_of_games
                                   if game.ID1 == player1_id else game.ACES_2 * court_dict[current_court_id][
-                    game.court_type] / game.Number_of_games
+                    game.court_type] * calculate_time_discount(time_discount_factor, current_year,
+                                                               game.year) / game.Number_of_games
                                   for game in player1_games_updated]
 
-                list_of_aces_2 = [game.ACES_1 * court_dict[current_court_id][game.court_type] / game.Number_of_games
+                list_of_aces_2 = [game.ACES_1 * court_dict[current_court_id][game.court_type]
+                                  * calculate_time_discount(time_discount_factor, current_year,
+                                                            game.year) / game.Number_of_games
                                   if game.ID1 == player2_id else game.ACES_2 * court_dict[current_court_id][
-                    game.court_type] / game.Number_of_games
+                    game.court_type] * calculate_time_discount(time_discount_factor, current_year,
+                                                               game.year) / game.Number_of_games
                                   for game in player2_games_updated]
 
-                list_of_tpw_1 = [game.TPWP1 * court_dict[current_court_id][game.court_type] / game.Number_of_games
+                list_of_tpw_1 = [game.TPWP1 * court_dict[current_court_id][game.court_type]
+                                 * calculate_time_discount(time_discount_factor, current_year,
+                                                           game.year) / game.Number_of_games
                                  if game.ID1 == player1_id else game.TPWP2 * court_dict[current_court_id][
-                    game.court_type] / game.Number_of_games
+                    game.court_type] * calculate_time_discount(time_discount_factor, current_year,
+                                                               game.year) / game.Number_of_games
                                  for game in player1_games_updated]
 
-                list_of_tpw_2 = [game.TPWP1 * court_dict[current_court_id][game.court_type] / game.Number_of_games
+                list_of_tpw_2 = [game.TPWP1 * court_dict[current_court_id][game.court_type]
+                                 * calculate_time_discount(time_discount_factor, current_year,
+                                                           game.year) / game.Number_of_games
                                  if game.ID1 == player2_id else game.TPWP2 * court_dict[current_court_id][
-                    game.court_type] / game.Number_of_games
+                    game.court_type] * calculate_time_discount(time_discount_factor, current_year,
+                                                               game.year) / game.Number_of_games
                                  for game in player2_games_updated]
 
                 # List of head to head statistics between two players
                 list_of_h2h_1 = [game.H12H * court_dict[current_court_id][game.court_type]
+                                 * calculate_time_discount(time_discount_factor, current_year, game.year)
                                  if game.ID1 == player1_id else game.H21H * court_dict[current_court_id][
-                    game.court_type] for game in
+                    game.court_type] * calculate_time_discount(time_discount_factor, current_year, game.year) for game
+                                 in
                                  player1_games_updated]
 
                 list_of_h2h_2 = [game.H12H * court_dict[current_court_id][game.court_type]
+                                 * calculate_time_discount(time_discount_factor, current_year, game.year)
                                  if game.ID1 == player2_id else game.H21H * court_dict[current_court_id][
-                    game.court_type] for game in
+                    game.court_type] * calculate_time_discount(time_discount_factor, current_year, game.year) for game
+                                 in
                                  player2_games_updated]
 
                 serveadv_1 = s.mean(list_of_serveadv_1)
@@ -585,6 +686,7 @@ class Models(object):
                 if bp_1 == 1 or bp_1 == 0 or bp_2 == 0 or bp_2 == 1:
                     continue
                 # The first feature of our feature set is the last match on the stats dataset
+
                 if random() > 0.5:
                     # Player 1 has won. So we label it 1.
                     feature = np.array(
@@ -597,7 +699,6 @@ class Models(object):
                     if np.any(np.isnan(feature)):
                         continue
                     else:
-
                         x.append(feature)
                         y.append(label)
 
@@ -613,19 +714,10 @@ class Models(object):
                     if np.any(np.isnan(feature)):
                         continue
                     else:
-                        subset_indexes.append(i)
-
                         x.append(feature)
                         y.append(label)
 
         # Export this final feature set with labels and all the stats to RData for further analysis
-        subsetted_df = self.dataset.iloc[subset_indexes, :]
-        result_column = pd.Series(y)
-        feature_column = pd.Series(x)
-        subsetted_df.insert(loc=0, column='result', value=result_column)
-        subsetted_df.insert(loc=1, column='feature', value=feature_column)
-
-        convert_dataframe_into_rdata(subsetted_df, "stats.train")
 
         print("{} matches had more than 5 common opponents in the past".format(common_opponents_is_five))
         print("{} matches had more than 10 common opponents in the past".format(ten_common_opponents))
@@ -639,91 +731,6 @@ class Models(object):
             pickle.dump(y, fp)
 
         return [x, y]
-
-    def train_and_test_svm_model(self, model_name, dataset_name, labelset_name, dump, split):
-
-        print("Training a new model {} on dataset {} and label set {}".format(model_name, dataset_name, labelset_name))
-
-        start_time = time.time()
-
-        pickle_in = open(dataset_name, "rb")
-        data = np.asarray(pickle.load(pickle_in))
-        pickle_in_2 = open(labelset_name, "rb")
-        label = np.asarray(pickle.load(pickle_in_2))
-
-        print("Size of our first dimension is {}.".format(np.size(data, 0)))
-        print("Size of our second dimension is {}.".format(np.size(data, 1)))
-        x = data[::-1]
-        y = label[::-1]
-        number_of_columns = x.shape[1] - 1
-
-        # Before standardizing we want to take out the H2H column
-
-        h2h = x[:, number_of_columns]
-
-        # Delete this specific column
-        x = np.delete(x, np.s_[-1], 1)
-
-        # Center to the mean and component wise scale to unit variance.
-        x_scaled = preprocessing.scale(x, with_mean=False)
-        # x_scaled = np.column_stack((x_scaled, h2h))
-        print(x_scaled.shape)
-        x_train, x_test, y_train, y_test = train_test_split(x_scaled, y, test_size=split, shuffle=False)
-        # Need the reverse the feature and labels because last match is the first feature in our array ??
-
-        print(len(x_train))
-        print(len(x_test))
-
-        print("The standard deviations of our features is {}.".format(np.std(x_train, axis=0)))
-        print("The means of our features is {}.".format(np.mean(x_train, axis=0)))
-
-        # Create and train the model
-        clf = svm.NuSVC()
-        clf.fit(x_train, y_train)
-
-        # Testing the model
-
-        print("Training accuracy for {} on {} and {} is: {}".format(model_name, dataset_name, labelset_name,
-                                                                    clf.score(x_train, y_train)))
-
-        print("Testing accuracy for {} on {} and {} is: {}".format(model_name, dataset_name, labelset_name,
-                                                                   clf.score(x_test, y_test)))
-
-        print("Time took for training and testing the model took--- %s seconds ---" % (time.time() - start_time))
-
-        # now we save the model to a file if test were successful
-        if (dump):
-            joblib.dump(clf, model_name)
-
-    def train_adaboost_classifier(self, dataset_name, labelset_name, adaboost):
-        start_time = time.time()
-
-        pickle_in = open(dataset_name, "rb")
-        features = np.asarray(pickle.load(pickle_in))
-        pickle_in_2 = open(labelset_name, "rb")
-        labels = np.asarray(pickle.load(pickle_in_2))
-        # Preprocess the feature and label space
-        x_scaled_no_duplicates, y_no_duplicates, standard_deviations = preprocess_features_before_training(features,
-                                                                                                           labels)
-
-        x_train, x_test, y_train, y_test = train_test_split(x_scaled_no_duplicates, y_no_duplicates, test_size=0.2,
-                                                            shuffle=False)
-        print("Size of our first dimension is {}.".format(np.size(x_scaled_no_duplicates, 0)))
-        print("Size of our second dimension is {}.".format(np.size(x_scaled_no_duplicates, 1)))
-        print("The number of UNIQUE features in our feature space is {}".format(len(x_scaled_no_duplicates)))
-        print("New label set size must be {}.".format(len(y_no_duplicates)))
-        sgd = SGDClassifier(loss="hinge", eta0=0.0001)  # create the tuned classifier
-
-        if adaboost:
-            clf = AdaBoostClassifier(n_estimators=100, base_estimator=sgd, learning_rate=1)
-        else:
-            clf = GradientBoostingClassifier(n_estimators=100, learning_rate=1.0, max_depth=1)
-        # Above I have used decision tree as a base estimator, you can use any ML learner as base estimator if it ac# cepts sample weight
-        clf.fit(x_train, y_train)
-
-        print("AdaBoost classifier training accuracy {}.".format(clf.score(x_train, y_train)))
-        print("AdaBoost classifier testing accuracy {}.".format(clf.score(x_test, y_test)))
-        print("Time took to train Adaboost Classifier  was --- {} seconds ---".format(time.time() - start_time))
 
     def train_decision_stump_model(self, dataset_name, labelset_name, number_of_features, development_mode,
                                    prediction_mode, historical_tournament, training_mode,
@@ -754,7 +761,7 @@ class Models(object):
         if development_mode:
             print("We are in development mode.")
             # This mode is used for hyperparameter optimization
-            x_train, x_test, y_train, y_test = train_test_split(x_scaled_no_duplicates, y_no_duplicates, test_size=0.25,
+            x_train, x_test, y_train, y_test = train_test_split(x_scaled_no_duplicates, y_no_duplicates, test_size=0.3,
                                                                 shuffle=False)
 
             # x_train, x_dev, y_train, y_dev = train_test_split(x_tr, y_tr, test_size=0.2, shuffle=False)
@@ -766,28 +773,40 @@ class Models(object):
             assert len(x_train) + len(x_test) == len(x_scaled_no_duplicates)
 
             # WARNING: BLOWING UP THE FEATURE SPACE
-            self.create_100_decision_stumps(x_train, y_train, x_scaled_no_duplicates, 0.2)  # create DT stumps
+            self.create_100_decision_stumps(x_train, y_train, x_test, 0., 4)  # create DT stumps
 
             # these are the new feature and label set we will training SGD Classifier
-            decision_stump_features, decision_stump_labels = self.create_new_vector_label_dataset(
+            decision_stump_x_train, decision_stump_y_train = self.create_new_vector_label_dataset(
                 self.old_feature_to_new_feature_dictionary)
 
             # Testing data turned into this format
-            test_data = np.asarray([self.old_feature_to_new_feature_dictionary[tuple(x)] for x in x_test])
-            test_label = np.asarray([self.old_feature_label_dict[tuple(x)] for x in x_test])
+            decision_stump_x_test, decision_stump_y_test = self.create_new_vector_label_dataset(
+                self.old_feature_to_new_feature_dictionary_for_testing)
 
-            # Development data to 100 length 1d vector
-            # dev_data = np.asarray([self.old_feature_to_new_feature_dictionary[tuple(x)] for x in x_dev])
-            # dev_label = np.asarray([self.old_feature_label_dict[tuple(x)] for x in x_dev])
+            tune_dt_max_depth(decision_stump_x_train, decision_stump_y_train, decision_stump_x_test,
+                              decision_stump_y_test)
+            tune_dt_min_samples_split(decision_stump_x_train, decision_stump_y_train, decision_stump_x_test,
+                                      decision_stump_y_test)
 
-            tune_dt_min_samples_leaf(decision_stump_features, decision_stump_labels, test_data, test_label)
-            tune_dt_max_features(decision_stump_features, decision_stump_labels, test_data, test_label)
-            linear_clf = tree.DecisionTreeClassifier(max_depth = 16)
+            tune_dt_min_samples_leaf(decision_stump_x_train, decision_stump_y_train, decision_stump_x_test,
+                                     decision_stump_y_test)
+            tune_dt_max_features(decision_stump_x_train, decision_stump_y_train, decision_stump_x_test,
+                                 decision_stump_y_test)
+
+            linear_clf = tree.DecisionTreeClassifier(max_depth=8)
+            linear_clf.fit(decision_stump_x_test, decision_stump_y_test)
+            print("Decision Tree model testing accuracy {}.".format(
+                linear_clf.score(decision_stump_x_train, decision_stump_y_train)))
             print("Decision Tree model training accuracy {}.".format(
-                linear_clf.score(decision_stump_features, decision_stump_labels)))
-            print("Decision Tree model testing accuracy {}.".format(linear_clf.score(test_data, test_label)))
+                linear_clf.score(decision_stump_x_test, decision_stump_y_test)))
+
+            y_pred = linear_clf.predict(decision_stump_x_train)
+            false_positive_rate, true_positive_rate, thresholds = roc_curve(decision_stump_y_train, y_pred)
+            roc_auc = auc(false_positive_rate, true_positive_rate)
+            print("ROC SCORE: {}".format(roc_auc))
+
             self.old_feature_to_new_feature_dictionary.clear()
-            self.old_feature_label_dict.clear()
+            self.old_feature_to_new_feature_dictionary_for_testing.clear()
 
         if prediction_mode:
             print('We are in prediction mode.')
@@ -856,12 +875,11 @@ class Models(object):
                 print("features_from_prediction length: {}".format(len(features_from_prediction)))
 
                 # THIS IS FOR WIMBLEDON 2018
-                """
+
                 del match_to_results_dictionary[tuple([9839, 63016])]
                 del match_to_results_dictionary[tuple([50386, 36519])]
                 del match_to_results_dictionary[tuple([10813, 63017])]
                 del match_to_results_dictionary[tuple([30856, 59356])]
-
 
                 del match_to_results_dictionary[tuple([11003, 28586])]
                 del match_to_results_dictionary[tuple([63016, 9839])]
@@ -870,14 +888,12 @@ class Models(object):
 
                 del match_to_results_dictionary[tuple([59356, 30856])]
                 del match_to_results_dictionary[tuple([28586, 11003])]
- """
 
                 # THIS IS FOR US OPEN 2017
                 """
-
                 del match_to_results_dictionary[tuple([22056, 34511])]
                 del match_to_results_dictionary[tuple([34511, 22056])]
-                """
+ """
 
                 """
                 #This is for qujing Challengers
@@ -887,7 +903,7 @@ class Models(object):
                 del match_to_results_dictionary[tuple([28296, 45197])]
                 """
                 # THIS IS FOR US OPEN 2018
-
+                """
                 del match_to_results_dictionary[tuple([18495, 29171])]
                 del match_to_results_dictionary[tuple([14606, 34861])]
                 del match_to_results_dictionary[tuple([22428, 25919])]
@@ -912,7 +928,7 @@ class Models(object):
                 del match_to_results_dictionary[tuple([38911, 27082])]
                 del match_to_results_dictionary[tuple([9831, 40609])]
                 del match_to_results_dictionary[tuple([1092, 38911])]
-
+"""
                 """
                 # For ATP DOHA 2017
                 del match_to_results_dictionary[tuple([30470, 25708])]
@@ -990,13 +1006,13 @@ class Models(object):
 
             else:
 
-                linear_clf = tree.DecisionTreeClassifier(max_depth=16)
+                linear_clf = tree.DecisionTreeClassifier(max_depth=8)
 
                 linear_clf.fit(decision_stump_features, decision_stump_labels)
                 y_pred = linear_clf.predict(decision_stump_features)
                 false_positive_rate, true_positive_rate, thresholds = roc_curve(decision_stump_labels, y_pred)
                 roc_auc = auc(false_positive_rate, true_positive_rate)
-                print("ROC SCORE for predictions : {}".format(roc_auc))
+                print("ROC SCORE for training : {}".format(roc_auc))
 
                 print("Decision Tree classifier training accuracy {}.".format(
                     linear_clf.score(decision_stump_features, decision_stump_labels)))
@@ -1010,9 +1026,7 @@ class Models(object):
                     print("{} Accuracy is {}.".format(tournament_pickle_file_name,
                                                       linear_clf.score(games, actual_labels)))
                     y_pred = linear_clf.predict(games)
-                    false_positive_rate, true_positive_rate, thresholds = roc_curve(actual_labels, y_pred)
-                    roc_auc = auc(false_positive_rate, true_positive_rate)
-                    print("ROC SCORE for predictions : {}".format(roc_auc))
+                    print("ROC SCORE for predictions : {}".format(roc_auc_score(actual_labels, y_pred)))
                     tune_dt_max_depth(decision_stump_features, decision_stump_labels, games, actual_labels)
 
 
@@ -1087,7 +1101,7 @@ class Models(object):
                     else:
 
                         prediction = average_probability.index(higher_prob)
-                        if float(odds[abs(int(prediction) - 1)]) < 1.49:
+                        if float(odds[abs(int(prediction) - 1)]) < 1.2:
                             continue
                         else:
                             count = count + 1
@@ -1114,46 +1128,114 @@ class Models(object):
                 ROI = (winnings - (bet_amount * (count))) / (bet_amount * (count)) * 100
                 print("Our ROI was: {}.".format(ROI))
                 self.old_feature_to_new_feature_dictionary.clear()
-                self.old_feature_label_dict.clear()
+
                 return predictions, result_dict
             if save:
                 joblib.dump(linear_clf, 'DT_Model_3.pkl')
 
         if training_mode:
+            print("We are in training mode")
 
+            # Bagged_Decision_Trees(5, x_scaled_no_duplicates, y_no_duplicates, 10)
+
+            linear_clf = tree.DecisionTreeClassifier(max_depth=8)
+            # tree.DecisionTreeClassifier(max_depth=8)
+            seed = 7
             # We want to train our model and test its training and testing accuracy
-            x_train, x_test, y_train, y_test = train_test_split(x_scaled_no_duplicates, y_no_duplicates, test_size=0.25,
-                                                                shuffle=False)
+            x_train, x_test, y_train, y_test = train_test_split(x_scaled_no_duplicates, y_no_duplicates, test_size=0.2,
+                                                                shuffle=True)  # random_state=0
+
             print("Size of the training set is: {}.".format((len(x_train))))
             print("Size of the test set is: {}.".format((len(x_test))))
+
+            # Adding class probabilities from different algorithms to our feature set ( LEVEL 0)
+            x_train_df, x_test_df = self.add_class_probabilities_to_features(
+                ExtraTreesClassifier(n_estimators=20),
+                x_train, x_test, y_train)
+
+            x_train_df, x_test_df = self.add_class_probabilities_to_features(
+                KNeighborsClassifier(n_neighbors=5), x_train_df.values, x_test_df.values, y_train)
+
+            x_train_df, x_test_df = self.add_class_probabilities_to_features(
+                BaggingClassifier(base_estimator=tree.DecisionTreeClassifier(max_depth=4), n_estimators=20,
+                                  random_state=seed), x_train_df.values, x_test_df.values, y_train)
+            # We stack them and run ExtraTreesClassifier on top of it
+            self.calculate_accuracy_and_roc_score(LogisticRegression(random_state=0, solver='lbfgs'), x_train_df.values,
+                                                  y_train,
+                                                  x_test_df.values, y_test)
+            #
+
+            # corr_X_y(x_train, y_train, figsize=(16, 10), label_rotation=80, hspace=1, fontsize=14)
+
+            ensemble = SuperLearner()
+            ensemble.add(tree.DecisionTreeClassifier(max_depth=8),
+                         BaggingClassifier(base_estimator=tree.DecisionTreeClassifier(), n_estimators=100,
+                                           random_state=1))
+            ensemble.add_meta(ExtraTreesClassifier(n_estimators=100))
+            y_pred = ensemble.fit(x_scaled_no_duplicates, y_no_duplicates).predict(x_scaled_no_duplicates)
+            print("Prediction score: %.3f" % accuracy_score(y_pred, y_no_duplicates))
 
             assert len(x_train) + len(x_test) == len(x_scaled_no_duplicates)
 
             # WARNING: BLOWING UP THE FEATURE SPACE
-            self.create_100_decision_stumps(x_train, y_train, x_scaled_no_duplicates, 0.2)  # create DT stumps
+            self.create_100_decision_stumps(x_train, y_train, x_test, 0.5, 8)  # create DT stumps
 
             # these are the new feature and label set we will training SGD Classifier
-            decision_stump_features, decision_stump_labels = self.create_new_vector_label_dataset(
+            decision_stump_x_train, decision_stump_y_train = self.create_new_vector_label_dataset(
                 self.old_feature_to_new_feature_dictionary)
 
+            test_data, test_label = self.create_new_vector_label_dataset(
+                self.old_feature_to_new_feature_dictionary_for_testing)
+            print(len(decision_stump_x_train))
+            print(len(test_data))
             # creating 100 1d vectors from our test dataset
-            test_data = np.asarray([self.old_feature_to_new_feature_dictionary[tuple(x)] for x in x_test])
-            test_label = np.asarray([self.old_feature_label_dict[tuple(x)] for x in x_test])
 
-            linear_clf = tree.DecisionTreeClassifier(max_depth=16)
-            linear_clf.fit(decision_stump_features, decision_stump_labels)
+            linear_clf.fit(decision_stump_x_train, decision_stump_y_train)
 
             print("Decision Tree model training accuracy {}.".format(
-                linear_clf.score(decision_stump_features, decision_stump_labels)))
+                linear_clf.score(decision_stump_x_train, decision_stump_y_train)))
             print("Decision Tree model testing accuracy {}.".format(linear_clf.score(test_data, test_label)))
             y_pred = linear_clf.predict(test_data)
             false_positive_rate, true_positive_rate, thresholds = roc_curve(test_label, y_pred)
             roc_auc = auc(false_positive_rate, true_positive_rate)
             print("ROC SCORE: {}".format(roc_auc))
             self.old_feature_to_new_feature_dictionary.clear()
-            self.old_feature_label_dict.clear()
+            self.old_feature_to_new_feature_dictionary_for_testing.clear()
+
             if save:
                 joblib.dump(linear_clf, 'DT_Model_99.pkl')
+
+    def add_class_probabilities_to_features(self, model, x_train, x_test, y_train):
+
+        x_train_df = pd.DataFrame(x_train)
+        x_test_df = pd.DataFrame(x_test)
+        test_pred1, train_pred1 = Stacking_with_probability(model, n_fold=10, X=x_train,
+                                                            test=x_test,
+                                                            y=y_train)
+
+        x_train_df = pd.concat([x_train_df, pd.DataFrame(train_pred1[:, 0])], axis=1)
+        x_test_df = pd.concat([x_test_df, pd.DataFrame(test_pred1[:, 0])], axis=1)
+
+        print(x_train_df.shape)
+        print(x_test_df.shape)
+
+        x_train_df = pd.concat([x_train_df, pd.DataFrame(train_pred1[:, 1])], axis=1)
+        x_test_df = pd.concat([x_test_df, pd.DataFrame(test_pred1[:, 1])], axis=1)
+
+        print(x_train_df.shape)
+        print(x_test_df.shape)
+        return [x_train_df, x_test_df]
+
+    def calculate_accuracy_and_roc_score(self, linear_clf, train_pred, y_train, test_pred, y_test):
+        linear_clf.fit(train_pred, y_train)
+        # print("Feature Importances {}".format(linear_clf.feature_importances_))
+        y_pred = linear_clf.predict(test_pred)
+        false_positive_rate, true_positive_rate, thresholds = roc_curve(y_test, y_pred)
+        roc_auc = auc(false_positive_rate, true_positive_rate)
+        linear_clf.fit(train_pred, y_train)
+        print("Training Accuracy {}".format(linear_clf.score(train_pred, y_train)))
+        print("Testing Accuracy {}".format(linear_clf.score(test_pred, y_test)))
+        print("ROC SCORE: {}".format(roc_auc))
 
     def create_100_decision_stumps_include_predictions(self, x, y, whole_training_set, test_size, predictions):
         for i in range(100):
@@ -1183,25 +1265,34 @@ class Models(object):
             print("Time took to train decision stump number "
                   "{} and make predictions was --- {} seconds ---".format(i, time.time() - start_time))
 
-    def create_100_decision_stumps(self, x, y, whole_training_set, test_size):
+    def create_100_decision_stumps(self, x, y, x_test, test_size, d):
         # Now we create and train 100 Decision Stumps.
         # Then predict label of each data point in four fold files (560 data points) and store them in a {vector: label list} dictionary
+        print("100 decision stump depth is {}".format(d))
         for i in range(100):
             start_time = time.time()
 
             data_train, data_test, labels_train, labels_test = train_test_split(x, y, test_size=test_size, shuffle=True)
             # train a Decision Stump - Classifier
-
-            clf = tree.DecisionTreeClassifier(max_depth=16)
+            # original_test = (np.setdiff1d(whole_training_set, x))
+            # print("length of original test is {}".format(len(original_test)))
+            clf = tree.DecisionTreeClassifier(max_depth=d)
             clf.fit(data_train, labels_train)
-
-            for data_point in whole_training_set:
+            for data_point in x:
                 # for each data point in the whole set, predict its label
                 predicted_label = clf.predict(data_point.reshape(1, -1))
 
                 # add the predicted label to the list which is mapped to its data_point
                 # dict: tuple of 6D np array to 100D np array
                 self.old_feature_to_new_feature_dictionary[tuple(data_point)].append(predicted_label[0])
+
+            for data_point in x_test:
+                # for each data point in the whole set, predict its label
+                predicted_label = clf.predict(data_point.reshape(1, -1))
+
+                # add the predicted label to the list which is mapped to its data_point
+                # dict: tuple of 6D np array to 100D np array
+                self.old_feature_to_new_feature_dictionary_for_testing[tuple(data_point)].append(predicted_label[0])
             print("Time took to train decision stump number {} and make predictions was --- {} seconds ---".format(i,
                                                                                                                    time.time() - start_time))
 
@@ -1529,48 +1620,39 @@ class Models(object):
 DT = Models("updated_stats_v3")  # Initalize the model class with our sqlite3 advanced stats database
 
 # To create the feature and label space
-"""
-data_label = DT.create_feature_set('data_v11.txt', 'label_v11.txt')
-print(len(data_label[0]))
-print(len(data_label[1]))
-"""
-# To create an SVM Model
-# DT.train_and_test_svm_model("svm_model_tpw_no_h2h.pkl", 'data_tpw_h2h.txt', 'label_tpw_h2h.txt', True, 0.2)
-# To test the model
-# test_model("svm_model_v4_h2h.pkl", "data_with_h2h.txt", "label_with_h2h.txt", 0.2)
-# test_model("svm_model_v3.pkl", "data_v3.txt", "label_v3.txt", 0.2)
+
+# data_label = DT.create_feature_set('data_v13_discount_05.txt', 'label_v13_discount_05.txt')
+# print(len(data_label[0]))
+# print(len(data_label[1]))
 
 
 # To train and make predictions on Decision Stump Model
 # US OPEN 2018-17
 
 
-
-predictions, result_dict = DT.train_decision_stump_model('data_v11.txt', 'label_v11.txt',
+predictions, result_dict = DT.train_decision_stump_model('data_v13_discount_05.txt', 'label_v13_discount_05.txt',
                                                          number_of_features=19,
                                                          development_mode=False,
-                                                         prediction_mode=True, historical_tournament=True,
+                                                         prediction_mode=False, historical_tournament=True,
                                                          save=False,
-                                                         training_mode=False,
+                                                         training_mode=True,
                                                          test_given_model=False,
-                                                         tournament_pickle_file_name='us_open_2018_odds.pkl',
+                                                         tournament_pickle_file_name='us_open_2017_odds_v2.pkl',
                                                          court_type=1)
 
-
-
 # WIMBLEDON 2018
+
 
 """
 predictions, result_dict = DT.train_decision_stump_model('data_v11.txt', 'label_v11.txt',
                                                          number_of_features=19,
                                                          development_mode=False,
-                                                         prediction_mode=True, historical_tournament=True,
+                                                         prediction_mode=False, historical_tournament=True,
                                                          save=False,
-                                                         training_mode=False,
+                                                         training_mode=True,
                                                          test_given_model=False,
                                                          tournament_pickle_file_name='wimbledon_2018_odds_v2.pkl',
                                                          court_type=5)
-
 
 """
 """
