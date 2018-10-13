@@ -699,7 +699,6 @@ class Models(object):
                     if np.any(np.isnan(feature)):
                         continue
                     else:
-
                         x.append(feature)
                         y.append(label)
 
@@ -715,7 +714,6 @@ class Models(object):
                     if np.any(np.isnan(feature)):
                         continue
                     else:
-
                         x.append(feature)
                         y.append(label)
 
@@ -733,91 +731,6 @@ class Models(object):
             pickle.dump(y, fp)
 
         return [x, y]
-
-    def train_and_test_svm_model(self, model_name, dataset_name, labelset_name, dump, split):
-
-        print("Training a new model {} on dataset {} and label set {}".format(model_name, dataset_name, labelset_name))
-
-        start_time = time.time()
-
-        pickle_in = open(dataset_name, "rb")
-        data = np.asarray(pickle.load(pickle_in))
-        pickle_in_2 = open(labelset_name, "rb")
-        label = np.asarray(pickle.load(pickle_in_2))
-
-        print("Size of our first dimension is {}.".format(np.size(data, 0)))
-        print("Size of our second dimension is {}.".format(np.size(data, 1)))
-        x = data[::-1]
-        y = label[::-1]
-        number_of_columns = x.shape[1] - 1
-
-        # Before standardizing we want to take out the H2H column
-
-        h2h = x[:, number_of_columns]
-
-        # Delete this specific column
-        x = np.delete(x, np.s_[-1], 1)
-
-        # Center to the mean and component wise scale to unit variance.
-        x_scaled = preprocessing.scale(x, with_mean=False)
-        # x_scaled = np.column_stack((x_scaled, h2h))
-        print(x_scaled.shape)
-        x_train, x_test, y_train, y_test = train_test_split(x_scaled, y, test_size=split, shuffle=False)
-        # Need the reverse the feature and labels because last match is the first feature in our array ??
-
-        print(len(x_train))
-        print(len(x_test))
-
-        print("The standard deviations of our features is {}.".format(np.std(x_train, axis=0)))
-        print("The means of our features is {}.".format(np.mean(x_train, axis=0)))
-
-        # Create and train the model
-        clf = svm.NuSVC()
-        clf.fit(x_train, y_train)
-
-        # Testing the model
-
-        print("Training accuracy for {} on {} and {} is: {}".format(model_name, dataset_name, labelset_name,
-                                                                    clf.score(x_train, y_train)))
-
-        print("Testing accuracy for {} on {} and {} is: {}".format(model_name, dataset_name, labelset_name,
-                                                                   clf.score(x_test, y_test)))
-
-        print("Time took for training and testing the model took--- %s seconds ---" % (time.time() - start_time))
-
-        # now we save the model to a file if test were successful
-        if (dump):
-            joblib.dump(clf, model_name)
-
-    def train_adaboost_classifier(self, dataset_name, labelset_name, adaboost):
-        start_time = time.time()
-
-        pickle_in = open(dataset_name, "rb")
-        features = np.asarray(pickle.load(pickle_in))
-        pickle_in_2 = open(labelset_name, "rb")
-        labels = np.asarray(pickle.load(pickle_in_2))
-        # Preprocess the feature and label space
-        x_scaled_no_duplicates, y_no_duplicates, standard_deviations = preprocess_features_before_training(features,
-                                                                                                           labels)
-
-        x_train, x_test, y_train, y_test = train_test_split(x_scaled_no_duplicates, y_no_duplicates, test_size=0.2,
-                                                            shuffle=False)
-        print("Size of our first dimension is {}.".format(np.size(x_scaled_no_duplicates, 0)))
-        print("Size of our second dimension is {}.".format(np.size(x_scaled_no_duplicates, 1)))
-        print("The number of UNIQUE features in our feature space is {}".format(len(x_scaled_no_duplicates)))
-        print("New label set size must be {}.".format(len(y_no_duplicates)))
-        sgd = SGDClassifier(loss="hinge", eta0=0.0001)  # create the tuned classifier
-
-        if adaboost:
-            clf = AdaBoostClassifier(n_estimators=100, base_estimator=sgd, learning_rate=1)
-        else:
-            clf = GradientBoostingClassifier(n_estimators=100, learning_rate=1.0, max_depth=1)
-        # Above I have used decision tree as a base estimator, you can use any ML learner as base estimator if it ac# cepts sample weight
-        clf.fit(x_train, y_train)
-
-        print("AdaBoost classifier training accuracy {}.".format(clf.score(x_train, y_train)))
-        print("AdaBoost classifier testing accuracy {}.".format(clf.score(x_test, y_test)))
-        print("Time took to train Adaboost Classifier  was --- {} seconds ---".format(time.time() - start_time))
 
     def train_decision_stump_model(self, dataset_name, labelset_name, number_of_features, development_mode,
                                    prediction_mode, historical_tournament, training_mode,
@@ -1708,22 +1621,16 @@ DT = Models("updated_stats_v3")  # Initalize the model class with our sqlite3 ad
 
 # To create the feature and label space
 
-data_label = DT.create_feature_set('data_v13_discount_05.txt', 'label_v13_discount_05.txt')
-print(len(data_label[0]))
-print(len(data_label[1]))
-
-# To create an SVM Model
-# DT.train_and_test_svm_model("svm_model_tpw_no_h2h.pkl", 'data_tpw_h2h.txt', 'label_tpw_h2h.txt', True, 0.2)
-# To test the model
-# test_model("svm_model_v4_h2h.pkl", "data_with_h2h.txt", "label_with_h2h.txt", 0.2)
-# test_model("svm_model_v3.pkl", "data_v3.txt", "label_v3.txt", 0.2)
+# data_label = DT.create_feature_set('data_v13_discount_05.txt', 'label_v13_discount_05.txt')
+# print(len(data_label[0]))
+# print(len(data_label[1]))
 
 
 # To train and make predictions on Decision Stump Model
 # US OPEN 2018-17
 
 
-predictions, result_dict = DT.train_decision_stump_model('data_v12.txt', 'label_v12.txt',
+predictions, result_dict = DT.train_decision_stump_model('data_v13_dicscount_05.txt', 'label_v13_dicscount_05.txt',
                                                          number_of_features=19,
                                                          development_mode=False,
                                                          prediction_mode=False, historical_tournament=True,
