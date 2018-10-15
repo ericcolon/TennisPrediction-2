@@ -136,6 +136,7 @@ def df2sqlite_v2(dataframe, db_name):
     #     dataframe.to_sql(db_name, disk_engine ,if_exists='append')"""
 
 
+# Check Sqlite3 database column names
 def show_deadline(conn, column_list):
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
@@ -149,42 +150,7 @@ def show_deadline(conn, column_list):
     return
 
 
-def test_svm_model(modelname, dataset_name, labelset_name, split):
-    pickle_in = open(dataset_name, "rb")
-    x = np.asarray(pickle.load(pickle_in))
-    pickle_in_2 = open(labelset_name, "rb")
-    y = np.asarray(pickle.load(pickle_in_2))
-    model = joblib.load(modelname)
-    rev_X = x[::-1]
-    rev_y = y[::-1]
-    number_of_columns = rev_X.shape[1] - 1
-    print(number_of_columns)
-
-    # Before standardizing we want to take out the H2H column
-
-    h2h = rev_X[:, number_of_columns]
-    print(rev_X.shape)
-    print(h2h.shape)
-
-    # Delete this specific column
-    rev_X = np.delete(rev_X, np.s_[-1], 1)
-    print(rev_X.shape)
-    print((rev_X.shape[1]))
-    # Before
-    # This line standardizes a feature X by dividing it by its standard deviation.
-    X_scaled = preprocessing.scale(rev_X, with_mean=False)
-    X_scaled = np.column_stack((X_scaled, h2h))
-    print(X_scaled.shape)
-
-    X_train, X_test, y_train, y_test = train_test_split(X_scaled, rev_y, test_size=split, shuffle=False)
-
-    print("Training accuracy for {} on {} and {} is: {}".format(modelname, dataset_name, labelset_name,
-                                                                model.score(X_train, y_train)))
-
-    print("Testing accuracy for {} on {} and {} is: {}".format(modelname, dataset_name, labelset_name,
-                                                               model.score(X_test, y_test)))
-
-
+# Tunes parameters of 100 Decision Stumps
 def tune_dt_stumps_features(x, y, x_test, y_test):
     parameter_values = [0.2, 0.4, 0.5, 0.6, 0.8]
 
@@ -383,6 +349,7 @@ def preprocess_features_before_training(features, labels):
     return [x_scaled_no_duplicates, y_no_duplicates, standard_deviations]
 
 
+# Helper function to do n-fold CV Stacked Generalization
 def Stacking(model, X, y, test, n_fold):
     seed = 1
     skf = StratifiedKFold(n_splits=n_fold, random_state=seed)
@@ -408,6 +375,7 @@ def Stacking(model, X, y, test, n_fold):
     return test_pred.reshape(-1, 1), train_pred
 
 
+# Helper function to do n-fold CV Stacked Generalization with class probability distributions
 def Stacking_with_probability(model, X, y, test, n_fold):
     seed = 7
     skf = StratifiedKFold(n_splits=n_fold, random_state=seed)
@@ -432,6 +400,7 @@ def Stacking_with_probability(model, X, y, test, n_fold):
     return test_pred, np.array(train_pred)
 
 
+# Helper function to train a Bagged Decision Tree Model
 def Bagged_Decision_Trees(split, X, y, num_trees):
     seed = 7
     kfold = KFold(n_splits=split, random_state=seed)
@@ -478,14 +447,6 @@ class Models(object):
         self.players = pd.read_sql_query('SELECT * FROM atp_players', conn_players)
         self.players['ID_P'] = self.players['ID_P'].apply(pd.to_numeric)
 
-        # Dictionaries for Decision Stump Model
-        self.old_feature_label_dict = {}
-        # A dictionary to map old_features (length 6-1D) to new_features (length 100 1-D)
-        self.old_feature_to_new_feature_dictionary = defaultdict(list)
-        self.old_feature_to_new_feature_dictionary_for_testing = defaultdict(list)
-
-        # Only used for prediction mode
-        self.predictions_old_feature_to_new_feature_dictionary = defaultdict(list)
         conn.close()
         conn_players.close()
 
@@ -493,6 +454,7 @@ class Models(object):
         # for instance in ec2.instances.all():
         #   print(instance.id, instance.state)
 
+    # Creates the feature stats from advanced stats database
     def create_feature_set(self, feature_set_name, label_set_name):
         # Takes the dataset created by FeatureExtraction and calculates required features for our model.
         # As of July 17: takes 90 minutes to complete the feature creation.
@@ -780,10 +742,12 @@ class Models(object):
 
         return [x, y]
 
+    # Trains, develops and makes predictions for Stacked generalization ensemble models
     def train_decision_stump_model(self, dataset_name, labelset_name, number_of_features, development_mode,
                                    prediction_mode, historical_tournament, training_mode,
                                    test_given_model, save, tournament_pickle_file_name, court_type):
 
+        print("We are currenty working with data set {} and label set {}".format(dataset_name,labelset_name))
         pickle_in = open(dataset_name, "rb")
         features = np.asarray(pickle.load(pickle_in))
         pickle_in_2 = open(labelset_name, "rb")
@@ -797,25 +761,15 @@ class Models(object):
         print("The number of UNIQUE features in our feature space is {}".format(len(x_scaled_no_duplicates)))
         print("New label set size must be {}.".format(len(y_no_duplicates)))
 
-        # dict of tuple (6D np array --> label)
-        self.old_feature_label_dict = {tuple(x_scaled_no_duplicates[x]): y_no_duplicates[x] for x in
-                                       range(len(x_scaled_no_duplicates))}
-
-        print("Our final set includes {} features".format(len(self.old_feature_label_dict)))
-
-        for feat in x_scaled_no_duplicates:
-            assert tuple(feat) in self.old_feature_label_dict
-
         # Create train and test sets for all 3 options.
         x_train, x_test, y_train, y_test = train_test_split(x_scaled_no_duplicates, y_no_duplicates, test_size=0.2,
                                                             shuffle=True)
 
+        # This mode is used for hyperparameter optimization
         if development_mode:
             print("We are in development mode.")
-            # This mode is used for hyperparameter optimization
 
             print("Size of the training set is: {}.".format((len(x_train))))
-            # print("Size of the dev set is: {}.".format((len(x_dev))))
             print("Size of the test set is: {}.".format((len(x_test))))
 
             assert len(x_train) + len(x_test) == len(x_scaled_no_duplicates)
@@ -900,7 +854,7 @@ class Models(object):
                     [self.make_predictions_using_DT(p1, p2, court_type, 17000, number_of_features) for i, (p1, p2) in
                      enumerate(zip(p1_list, p2_list))])
 
-                # THIS IS FOR WIMBLEDON 2018
+                # THIS IS FOR WIMBLEDON 2018  """
                 """
                 del match_to_results_dictionary[tuple([9839, 63016])]
                 del match_to_results_dictionary[tuple([50386, 36519])]
@@ -914,7 +868,20 @@ class Models(object):
 
                 del match_to_results_dictionary[tuple([59356, 30856])]
                 del match_to_results_dictionary[tuple([28586, 11003])]
-                 """
+
+                del match_to_odds_dictionary[tuple([9839, 63016])]
+                del match_to_odds_dictionary[tuple([50386, 36519])]
+                del match_to_odds_dictionary[tuple([10813, 63017])]
+                del match_to_odds_dictionary[tuple([30856, 59356])]
+
+                del match_to_odds_dictionary[tuple([11003, 28586])]
+                del match_to_odds_dictionary[tuple([63016, 9839])]
+                del match_to_odds_dictionary[tuple([36519, 50386])]
+                del match_to_odds_dictionary[tuple([63017, 10813])]
+
+                del match_to_odds_dictionary[tuple([59356, 30856])]
+                del match_to_odds_dictionary[tuple([28586, 11003])]
+                """
                 # THIS IS FOR US OPEN 2017
 
                 del match_to_results_dictionary[tuple([22056, 34511])]
@@ -1023,7 +990,8 @@ class Models(object):
 
             else:
 
-                linear_clf = tree.DecisionTreeClassifier(max_depth=8)
+                #linear_clf = tree.DecisionTreeClassifier(max_depth=4)
+                linear_clf = RandomForestClassifier(n_estimators=20)
                 linear_clf.fit(dt_x_train, y_no_duplicates)
 
                 if historical_tournament:
@@ -1130,7 +1098,6 @@ class Models(object):
                 print(correct / count)
                 ROI = (winnings - (bet_amount * (count))) / (bet_amount * (count)) * 100
                 print("Our ROI was: {}.".format(ROI))
-                self.old_feature_to_new_feature_dictionary.clear()
 
                 return predictions, result_dict
             if save:
@@ -1203,6 +1170,7 @@ class Models(object):
             if save:
                 joblib.dump(linear_clf, 'DT_Model_99.pkl')
 
+    # adds class probabilitys to original feature set
     def add_class_probabilities_to_features(self, model, x_train, x_test, y_train):
 
         x_train_df = pd.DataFrame(x_train)
@@ -1214,16 +1182,17 @@ class Models(object):
         x_train_df = pd.concat([x_train_df, pd.DataFrame(train_pred1[:, 0])], axis=1)
         x_test_df = pd.concat([x_test_df, pd.DataFrame(test_pred1[:, 0])], axis=1)
 
-        print("Train dataframe shape after stacking is {}.".format(x_train_df.shape))
-        print("Test dataframe shape after stacking is {}.".format(x_test_df.shape))
+       # print("Train dataframe shape after stacking is {}.".format(x_train_df.shape))
+       # print("Test dataframe shape after stacking is {}.".format(x_test_df.shape))
 
         x_train_df = pd.concat([x_train_df, pd.DataFrame(train_pred1[:, 1])], axis=1)
         x_test_df = pd.concat([x_test_df, pd.DataFrame(test_pred1[:, 1])], axis=1)
 
-        print("Train dataframe shape after stacking is {}.".format(x_train_df.shape))
-        print("Test dataframe shape after stacking is {}.".format(x_test_df.shape))
+      #  print("Train dataframe shape after stacking is {}.".format(x_train_df.shape))
+       # print("Test dataframe shape after stacking is {}.".format(x_test_df.shape))
         return [x_train_df, x_test_df]
 
+    # Calculates train and test accuracy with ROC scores
     def calculate_accuracy_and_roc_score(self, linear_clf, train_pred, y_train, test_pred, y_test):
         linear_clf.fit(train_pred, y_train)
 
@@ -1244,6 +1213,7 @@ class Models(object):
         roc_auc = auc(false_positive_rate, true_positive_rate)
         print("ROC SCORE for testing is : {}".format(roc_auc))
 
+    # Calculates accuricies but only takes account over a certain probability threshold
     def calculate_accuracy_over_threshold(self, linear_clf, train_pred, y_train, test_pred, y_test):
         linear_clf.fit(train_pred, y_train)
 
@@ -1254,6 +1224,7 @@ class Models(object):
             print("Predicted label was {}".format(predicted_label[0]))
             print("Prediction probability is was {}".format(prediction_probability))
 
+    # Creates the meta level prediction features
     def get_decision_stump_predictions(self, x, y, x_test, test_size, depth):
         print("Running 100 iterations for Decision Stump Predictions")
         test_pred = []
@@ -1276,47 +1247,6 @@ class Models(object):
         print("Time took to train decision stumps and make predictions was --- {} seconds ---".format(
             time.time() - start_time))
         return [np.array(new_train_pred), np.array(new_test_pred)]
-
-    def create_100_decision_stumps_include_predictions(self, x, y, whole_training_set, test_size, predictions):
-        for i in range(100):
-            start_time = time.time()
-
-            data_train, data_test, labels_train, labels_test = train_test_split(x, y, test_size=test_size, shuffle=True)
-            # train a Decision Stump - Classifier
-
-            clf = tree.DecisionTreeClassifier(max_depth=16)
-            # clf = KNeighborsClassifier()
-
-            clf.fit(data_train, labels_train)
-            print(clf.feature_importances_)
-
-            for data_point in whole_training_set:
-                # for each data point in the whole set, predict its label
-                predicted_label = clf.predict(data_point.reshape(1, -1))
-
-                # add the predicted label to the list which is mapped to its data_point
-                # dict: tuple of 6D np array to 100D np array
-                self.old_feature_to_new_feature_dictionary[tuple(data_point)].append(predicted_label[0])
-
-            for prediction in predictions:
-                predicted_label = clf.predict(prediction.reshape(1, -1))
-                self.predictions_old_feature_to_new_feature_dictionary[tuple(prediction)].append(predicted_label[0])
-
-            print("Time took to train decision stump number "
-                  "{} and make predictions was --- {} seconds ---".format(i, time.time() - start_time))
-
-    def create_new_vector_label_dataset(self, old_new_feature_dict):
-
-        # Functions associates new 100-1D vectors with their correct labels
-        X = []
-        y = []
-        for old_feature, new_feature in old_new_feature_dict.items():
-            X.append(list(new_feature))
-            y.append(self.old_feature_label_dict[old_feature])
-
-        X = np.array(X)
-        y = np.array(y)
-        return [X, y]
 
     def get_average_features(self, player1_id, player2_id, earlier_games_of_p1, earlier_games_of_p2, court_dict,
                              current_court_id,
