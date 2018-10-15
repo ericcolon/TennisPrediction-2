@@ -313,11 +313,11 @@ def calculate_time_discount(discount_factor, current_year, game_year):
 def preprocess_features_of_predictions(features, standard_deviations):
     feat = features[~np.all(features == 0, axis=1)]  # Delete the zero np arrays
     # h2h_pred = features[:, features.shape[1] - 1]  # Save h2h feature
-    features_shortened = np.delete(feat, np.s_[-1], 1)  # Delete h2h feature out from the feature set
-    # features_scaled = feat / standard_deviations[None, :]  # Scale other features"
+    # features_shortened = np.delete(feat, np.s_[-1], 1)  # Delete h2h feature out from the feature set
+    features_scaled = feat / standard_deviations[None, :]  # Scale other features"
     "Uncommented this line for taking out h2h feature"
     # features_final = np.column_stack((features_scaled, h2h_pred))  # Add H2H statistics back to the mix
-    return features_shortened
+    return feat
 
 
 # Helper function to preprocess features and labels before training Decision Stump Model
@@ -343,7 +343,7 @@ def preprocess_features_before_training(features, labels):
     last_x = np.column_stack((x_scaled, h2h))  # Add H2H statistics back to the mix
 
     # We need to get rid of the duplicate values in our dataset. (Around 600 dups. Will check it later)
-    x_scaled_no_duplicates, indices = np.unique(x_shortened, axis=0, return_index=True)
+    x_scaled_no_duplicates, indices = np.unique(x, axis=0, return_index=True)
 
     y_no_duplicates = y[indices]
     return [x_scaled_no_duplicates, y_no_duplicates, standard_deviations]
@@ -700,8 +700,9 @@ class Models(object):
                 if random() > 0.5:
                     # Player 1 has won. So we label it 1.
                     feature = np.array(
-                        [serveadv_1, complete_1, w1sp_1, aces_1, bp_1, tpw1, serveadv_2, complete_2, w1sp_2, aces_2,
-                         bp_2, tpw2, serveadv_1 - serveadv_2, complete_1 - complete_2, w1sp_1 - w1sp_2, aces_1 - aces_2,
+                        #  [serveadv_1, complete_1, w1sp_1, aces_1, bp_1, tpw1, serveadv_2, complete_2, w1sp_2, aces_2,
+                        #  bp_2, tpw2,
+                        [serveadv_1 - serveadv_2, complete_1 - complete_2, w1sp_1 - w1sp_2, aces_1 - aces_2,
                          bp_1 - bp_2, tpw1 - tpw2, h2h_1 - h2h_2])
 
                     label = 1
@@ -716,8 +717,10 @@ class Models(object):
                     # Player 1 has won. We switch Player 2 and Player 1 positions and label it 0 (Player 1 win, player 2 loss).
                     # This is necessary because our dataset has a specific format where first player always wins.
                     feature = np.array(
-                        [serveadv_2, complete_2, w1sp_2, aces_2, bp_2, tpw2, serveadv_1, complete_1, w1sp_1, aces_1,
-                         bp_1, tpw1, serveadv_2 - serveadv_1, complete_2 - complete_1, w1sp_2 - w1sp_1, aces_2 - aces_1,
+                        # [serveadv_2, complete_2, w1sp_2, aces_2, bp_2, tpw2, serveadv_1, complete_1, w1sp_1, aces_1,
+                        #  bp_1, tpw1, serveadv_2 - serveadv_1, complete_2 - complete_1, w1sp_2 - w1sp_1, aces_2 - aces_1,
+                        #  bp_2 - bp_1, tpw2 - tpw1, h2h_2 - h2h_1])
+                        [serveadv_2 - serveadv_1, complete_2 - complete_1, w1sp_2 - w1sp_1, aces_2 - aces_1,
                          bp_2 - bp_1, tpw2 - tpw1, h2h_2 - h2h_1])
                     label = 0
 
@@ -747,7 +750,7 @@ class Models(object):
                                    prediction_mode, historical_tournament, training_mode,
                                    test_given_model, save, tournament_pickle_file_name, court_type):
 
-        print("We are currenty working with data set {} and label set {}".format(dataset_name,labelset_name))
+        print("We are currenty working with data set {} and label set {}".format(dataset_name, labelset_name))
         pickle_in = open(dataset_name, "rb")
         features = np.asarray(pickle.load(pickle_in))
         pickle_in_2 = open(labelset_name, "rb")
@@ -895,6 +898,11 @@ class Models(object):
                 del match_to_results_dictionary[tuple([45197, 28296])]
                 del match_to_results_dictionary[tuple([35539, 17359])]
                 del match_to_results_dictionary[tuple([28296, 45197])]
+                
+                del match_to_odds_dictionary[tuple([17359, 35539])]
+                del match_to_odds_dictionary[tuple([45197, 28296])]
+                del match_to_odds_dictionary[tuple([35539, 17359])]
+                del match_to_odds_dictionary[tuple([28296, 45197])]
                 """
                 # THIS IS FOR US OPEN 2018
                 """
@@ -922,11 +930,39 @@ class Models(object):
                 del match_to_results_dictionary[tuple([38911, 27082])]
                 del match_to_results_dictionary[tuple([9831, 40609])]
                 del match_to_results_dictionary[tuple([1092, 38911])]
-"""
+
+                del match_to_odds_dictionary[tuple([18495, 29171])]
+                del match_to_odds_dictionary[tuple([14606, 34861])]
+                del match_to_odds_dictionary[tuple([22428, 25919])]
+                del match_to_odds_dictionary[tuple([28586, 26381])]
+
+                del match_to_odds_dictionary[tuple([10901, 56846])]
+                del match_to_odds_dictionary[tuple([56846, 38911])]
+                del match_to_odds_dictionary[tuple([31392, 27082])]
+                del match_to_odds_dictionary[tuple([27082, 38911])]
+
+                del match_to_odds_dictionary[tuple([40609, 9831])]
+                del match_to_odds_dictionary[tuple([38911, 1092])]
+                del match_to_odds_dictionary[tuple([29171, 18495])]
+                del match_to_odds_dictionary[tuple([34861, 14606])]
+
+                del match_to_odds_dictionary[tuple([25919, 22428])]
+                del match_to_odds_dictionary[tuple([26381, 28586])]
+                del match_to_odds_dictionary[tuple([56846, 10901])]
+                del match_to_odds_dictionary[tuple([38911, 56846])]
+
+                del match_to_odds_dictionary[tuple([27082, 31392])]
+                del match_to_odds_dictionary[tuple([38911, 27082])]
+                del match_to_odds_dictionary[tuple([9831, 40609])]
+                del match_to_odds_dictionary[tuple([1092, 38911])]
+                """
                 """
                 # For ATP DOHA 2017
                 del match_to_results_dictionary[tuple([30470, 25708])]
                 del match_to_results_dictionary[tuple([25708, 30470])]
+                
+                del match_to_odds_dictionary[tuple([30470, 25708])]
+                del match_to_odds_dictionary[tuple([25708, 30470])]
                  """
 
             else:
@@ -990,8 +1026,8 @@ class Models(object):
 
             else:
 
-                #linear_clf = tree.DecisionTreeClassifier(max_depth=4)
-                linear_clf = RandomForestClassifier(n_estimators=20)
+                # linear_clf = tree.DecisionTreeClassifier(max_depth=4)
+                linear_clf = RandomForestClassifier(n_estimators=50)
                 linear_clf.fit(dt_x_train, y_no_duplicates)
 
                 if historical_tournament:
@@ -1182,14 +1218,14 @@ class Models(object):
         x_train_df = pd.concat([x_train_df, pd.DataFrame(train_pred1[:, 0])], axis=1)
         x_test_df = pd.concat([x_test_df, pd.DataFrame(test_pred1[:, 0])], axis=1)
 
-       # print("Train dataframe shape after stacking is {}.".format(x_train_df.shape))
-       # print("Test dataframe shape after stacking is {}.".format(x_test_df.shape))
+        # print("Train dataframe shape after stacking is {}.".format(x_train_df.shape))
+        # print("Test dataframe shape after stacking is {}.".format(x_test_df.shape))
 
         x_train_df = pd.concat([x_train_df, pd.DataFrame(train_pred1[:, 1])], axis=1)
         x_test_df = pd.concat([x_test_df, pd.DataFrame(test_pred1[:, 1])], axis=1)
 
-      #  print("Train dataframe shape after stacking is {}.".format(x_train_df.shape))
-       # print("Test dataframe shape after stacking is {}.".format(x_test_df.shape))
+        #  print("Train dataframe shape after stacking is {}.".format(x_train_df.shape))
+        # print("Test dataframe shape after stacking is {}.".format(x_test_df.shape))
         return [x_train_df, x_test_df]
 
     # Calculates train and test accuracy with ROC scores
@@ -1260,84 +1296,109 @@ class Models(object):
                                              player2_id == game.ID2 and opponent == game.ID1)]
 
             # Get the stats from those matches. Weighted by their surface matrix.
+            # Get the stats from those matches. Weighted by their surface matrix.
             list_of_serveadv_1 = [game.SERVEADV1 * court_dict[current_court_id][
-                game.court_type]
+                game.court_type] * calculate_time_discount(time_discount_factor, current_year, game.year)
                                   if game.ID1 == player1_id else game.SERVEADV2 * court_dict[current_court_id][
-                game.court_type] for game in
+                game.court_type] * calculate_time_discount(time_discount_factor, current_year, game.year) for game
+                                  in
                                   player1_games_updated]
 
             list_of_serveadv_2 = [game.SERVEADV1 * court_dict[current_court_id][
-                game.court_type]
+                game.court_type] * calculate_time_discount(time_discount_factor, current_year, game.year)
                                   if game.ID1 == player2_id else game.SERVEADV2 * court_dict[current_court_id][
-                game.court_type] for game in
+                game.court_type] * calculate_time_discount(time_discount_factor, current_year, game.year) for game
+                                  in
                                   player2_games_updated]
 
             list_of_complete_1 = [game.COMPLETE1 * court_dict[current_court_id][
-                game.court_type]
+                game.court_type] * calculate_time_discount(time_discount_factor, current_year, game.year)
                                   if game.ID1 == player1_id else game.COMPLETE2 * court_dict[current_court_id][
-                game.court_type] for game in
+                game.court_type] * calculate_time_discount(time_discount_factor, current_year, game.year) for game
+                                  in
                                   player1_games_updated]
 
             list_of_complete_2 = [game.COMPLETE1 * court_dict[current_court_id][
-                game.court_type]
+                game.court_type] * calculate_time_discount(time_discount_factor, current_year, game.year)
                                   if game.ID1 == player2_id else game.COMPLETE2 * court_dict[current_court_id][
-                game.court_type] for game in
+                game.court_type] * calculate_time_discount(time_discount_factor, current_year, game.year) for game
+                                  in
                                   player2_games_updated]
 
             list_of_w1sp_1 = [game.W1SP1 * court_dict[current_court_id][
-                game.court_type]
+                game.court_type] * calculate_time_discount(time_discount_factor, current_year, game.year)
                               if game.ID1 == player1_id else game.W1SP2 * court_dict[current_court_id][
-                game.court_type] for game in
+                game.court_type] * calculate_time_discount(time_discount_factor, current_year, game.year) for game
+                              in
                               player1_games_updated]
 
             list_of_w1sp_2 = [game.W1SP1 * court_dict[current_court_id][
-                game.court_type]
+                game.court_type] * calculate_time_discount(time_discount_factor, current_year, game.year)
                               if game.ID1 == player2_id else game.W1SP2 * court_dict[current_court_id][
-                game.court_type] for game in
+                game.court_type] * calculate_time_discount(time_discount_factor, current_year, game.year) for game
+                              in
                               player2_games_updated]
 
             list_of_breaking_points_1 = [game.BP1 * court_dict[current_court_id]
-            [game.court_type]
+            [game.court_type] * calculate_time_discount(time_discount_factor, current_year, game.year)
                                          if game.ID1 == player1_id else game.BP2 * court_dict[current_court_id][
-                game.court_type] for game in
+                game.court_type] * calculate_time_discount(time_discount_factor, current_year, game.year) for game
+                                         in
                                          player1_games_updated]
 
             list_of_breaking_points_2 = [game.BP1 * court_dict[current_court_id][
-                game.court_type]
+                game.court_type] * calculate_time_discount(time_discount_factor, current_year, game.year)
                                          if game.ID1 == player2_id else game.BP2 * court_dict[current_court_id][
-                game.court_type] for game in
+                game.court_type] * calculate_time_discount(time_discount_factor, current_year, game.year) for game
+                                         in
                                          player2_games_updated]
 
             # ADDED: ACES PER GAME (NOT PER MATCH)
-            list_of_aces_1 = [game.ACES_1 * court_dict[current_court_id][game.court_type] / game.Number_of_games
+            list_of_aces_1 = [game.ACES_1 * court_dict[current_court_id][game.court_type]
+                              * calculate_time_discount(time_discount_factor, current_year,
+                                                        game.year) / game.Number_of_games
                               if game.ID1 == player1_id else game.ACES_2 * court_dict[current_court_id][
-                game.court_type] / game.Number_of_games
+                game.court_type] * calculate_time_discount(time_discount_factor, current_year,
+                                                           game.year) / game.Number_of_games
                               for game in player1_games_updated]
 
-            list_of_aces_2 = [game.ACES_1 * court_dict[current_court_id][game.court_type] / game.Number_of_games
+            list_of_aces_2 = [game.ACES_1 * court_dict[current_court_id][game.court_type]
+                              * calculate_time_discount(time_discount_factor, current_year,
+                                                        game.year) / game.Number_of_games
                               if game.ID1 == player2_id else game.ACES_2 * court_dict[current_court_id][
-                game.court_type] / game.Number_of_games
+                game.court_type] * calculate_time_discount(time_discount_factor, current_year,
+                                                           game.year) / game.Number_of_games
                               for game in player2_games_updated]
 
-            list_of_tpw_1 = [game.TPWP1 * court_dict[current_court_id][game.court_type] / game.Number_of_games
+            list_of_tpw_1 = [game.TPWP1 * court_dict[current_court_id][game.court_type]
+                             * calculate_time_discount(time_discount_factor, current_year,
+                                                       game.year) / game.Number_of_games
                              if game.ID1 == player1_id else game.TPWP2 * court_dict[current_court_id][
-                game.court_type] / game.Number_of_games
+                game.court_type] * calculate_time_discount(time_discount_factor, current_year,
+                                                           game.year) / game.Number_of_games
                              for game in player1_games_updated]
 
-            list_of_tpw_2 = [game.TPWP1 * court_dict[current_court_id][game.court_type] / game.Number_of_games
+            list_of_tpw_2 = [game.TPWP1 * court_dict[current_court_id][game.court_type]
+                             * calculate_time_discount(time_discount_factor, current_year,
+                                                       game.year) / game.Number_of_games
                              if game.ID1 == player2_id else game.TPWP2 * court_dict[current_court_id][
-                game.court_type] / game.Number_of_games
+                game.court_type] * calculate_time_discount(time_discount_factor, current_year,
+                                                           game.year) / game.Number_of_games
                              for game in player2_games_updated]
 
             # List of head to head statistics between two players
             list_of_h2h_1 = [game.H12H * court_dict[current_court_id][game.court_type]
+                             * calculate_time_discount(time_discount_factor, current_year, game.year)
                              if game.ID1 == player1_id else game.H21H * court_dict[current_court_id][
-                game.court_type] for game in
+                game.court_type] * calculate_time_discount(time_discount_factor, current_year, game.year) for game
+                             in
                              player1_games_updated]
 
             list_of_h2h_2 = [game.H12H * court_dict[current_court_id][game.court_type]
+                             * calculate_time_discount(time_discount_factor, current_year, game.year)
                              if game.ID1 == player2_id else game.H21H * court_dict[current_court_id][
-                game.court_type] for game in
+                game.court_type] * calculate_time_discount(time_discount_factor, current_year, game.year) for game
+                             in
                              player2_games_updated]
 
             serveadv_1 = s.mean(list_of_serveadv_1)
@@ -1570,9 +1631,13 @@ class Models(object):
                 return np.zeros([number_of_features, ])  # you have to change this number as you keep adding features!
             else:
 
+                # feature = np.array(
+                #   [serveadv_1, complete_1, w1sp_1, aces_1, bp_1, tpw1, serveadv_2, complete_2, w1sp_2, aces_2,
+                #   bp_2, tpw2, serveadv_1 - serveadv_2, complete_1 - complete_2, w1sp_1 - w1sp_2, aces_1 - aces_2,
+                #   bp_1 - bp_2, tpw1 - tpw2, h2h_1 - h2h_2])
+
                 feature = np.array(
-                    [serveadv_1, complete_1, w1sp_1, aces_1, bp_1, tpw1, serveadv_2, complete_2, w1sp_2, aces_2,
-                     bp_2, tpw2, serveadv_1 - serveadv_2, complete_1 - complete_2, w1sp_1 - w1sp_2, aces_1 - aces_2,
+                    [serveadv_1 - serveadv_2, complete_1 - complete_2, w1sp_1 - w1sp_2, aces_1 - aces_2,
                      bp_1 - bp_2, tpw1 - tpw2, h2h_1 - h2h_2])
                 return feature
         else:
@@ -1584,24 +1649,25 @@ class Models(object):
 DT = Models("updated_stats_v3")  # Initalize the model class with our sqlite3 advanced stats database
 
 # To create the feature and label space
-
-# data_label = DT.create_feature_set('data_v12.txt', 'label_v12.txt')
-# print(len(data_label[0]))
-# print(len(data_label[1]))
+"""
+data_label = DT.create_feature_set('data_v12_short.txt', 'label_v12_short.txt')
+print(len(data_label[0]))
+print(len(data_label[1]))
+"""
 
 # To train and make predictions on Decision Stump Model
 # US OPEN 2018-17
-"""
-predictions, result_dict = DT.train_decision_stump_model('data_v12.txt', 'label_v12.txt',
-                                                         number_of_features=19,
-                                                         development_mode=True,
-                                                         prediction_mode=False, historical_tournament=True,
+
+predictions, result_dict = DT.train_decision_stump_model('data_v12_short.txt', 'label_v12_short.txt',
+                                                         number_of_features=7,
+                                                         development_mode=False,
+                                                         prediction_mode=True, historical_tournament=True,
                                                          save=False,
-                                                         training_mode=False,
+                                                         training_mode=True,
                                                          test_given_model=False,
                                                          tournament_pickle_file_name='us_open_2017_odds_v2.pkl',
                                                          court_type=1)
-"""
+
 # WIMBLEDON 2018
 """
 predictions, result_dict = DT.train_decision_stump_model('data_v11.txt', 'label_v11.txt',
@@ -1614,7 +1680,7 @@ predictions, result_dict = DT.train_decision_stump_model('data_v11.txt', 'label_
                                                          tournament_pickle_file_name='wimbledon_2018_odds_v2.pkl',
                                                          court_type=5)
 """
-
+"""
 # To train a model and get training and testing accuracy 
 DT.train_decision_stump_model('data_v12.txt', 'label_v12.txt',
                               number_of_features=19,
@@ -1626,21 +1692,20 @@ DT.train_decision_stump_model('data_v12.txt', 'label_v12.txt',
                               tournament_pickle_file_name='us_open_2017_odds_v2.pkl',
                               court_type=1)
 
-"""
 
+"""
+"""
 # Hyperparameter Tuning for DT Model
 DT.train_decision_stump_model('data_v12.txt', 'label_v12.txt',
                               number_of_features=19,
-                              development_mode=True,
-                              prediction_mode=False, historical_tournament=True,
+                              development_mode=False,
+                              prediction_mode=True, historical_tournament=True,
                               save=False,
                               training_mode=False,
                               test_given_model=False,
-                              tournament_pickle_file_name='wimbledon_2018_odds_v2.pkl',
-                              court_type=5)
-
+                              tournament_pickle_file_name='us_open_2018_odds.pkl',
+                              court_type=1)
 """
-
 """
 start_time = time.time()
 dct = defaultdict(list)
@@ -1669,12 +1734,7 @@ print("Time took to run this whole thing was --- {} seconds ---".format(time.tim
 test_final_results('beijing_2018_results.pickle', 'beijing_2018_predictions.pickle', length_of_guesses=5)
 """
 # test_final_results('result_wimbledon_2018_odds.pickle', 'odds_wimbledon_2018_odds.pickle', length_of_guesses=7)
-"""
-DT.train_decision_stump_model('data_v6.txt', 'label_v6.txt', number_of_features=7, development_mode=False,
-                              prediction_mode=True, historical_tournament=True, save=False, training_mode=False,
-                              test_given_model=False, tournament_pickle_file_name='wimbledon_2018_odds_v2.pkl',
-                              court_type=5)                   
-"""
+
 
 # test_final_results('result_us_open.pickle', 'odds_us_open.pickle', length_of_guesses=4)
 # test_final_results('result_wimbledon_2018_odds.pickle', 'odds_wimbledon_2018_odds.pickle', length_of_guesses=7)
