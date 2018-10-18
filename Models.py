@@ -17,14 +17,12 @@ import pandas as pd
 from matplotlib.legend_handler import HandlerLine2D
 # Sklearn imports
 from sklearn import preprocessing
-from sklearn import svm
 from sklearn import tree
 from sklearn.ensemble import RandomForestClassifier, BaggingClassifier
 from sklearn.neighbors import KNeighborsClassifier
-from sklearn.ensemble import AdaBoostClassifier  # For Classification
 from sklearn.ensemble import GradientBoostingClassifier, ExtraTreesClassifier  # For Classification
 from sklearn.externals import joblib
-from sklearn.linear_model import SGDClassifier, LogisticRegression
+from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_curve, auc, roc_auc_score, accuracy_score
 from sklearn.model_selection import StratifiedKFold, KFold
 from sklearn.model_selection import train_test_split, cross_val_score
@@ -38,17 +36,16 @@ from sklearn.linear_model import Lasso, ElasticNet
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.preprocessing import StandardScaler
 
+
 # Data viz
-from mlens.visualization import corr_X_y, corrmat
+# from mlens.visualization import corr_X_y, corrmat
 
 # Model evaluation
-from mlens.metrics import make_scorer
-from mlens.model_selection import Evaluator
+# from mlens.metrics import make_scorer
+# from mlens.model_selection import Evaluator
 
 # Ensemble
-from mlens.ensemble import SuperLearner
-
-from scipy.stats import uniform, randint
+# from mlens.ensemble import SuperLearner
 
 
 def convert_dataframe_into_rdata(df, name):
@@ -327,10 +324,10 @@ def preprocess_features_before_training(features, labels):
     # 3. Remove any duplicates (so we don't have any hard to find problems with dictionaries later
     x = features[::-1]
     y = labels[::-1]
-    number_of_columns = x.shape[1] - 1
+    # number_of_columns = x.shape[1] - 1
 
     # Before standardizing we want to take out the H2H column
-    h2h = x[:, number_of_columns]
+    # h2h = x[:, number_of_columns]
 
     # Delete this specific column
     x_shortened = np.delete(x, np.s_[-1], 1)
@@ -340,7 +337,7 @@ def preprocess_features_before_training(features, labels):
     # Center to the mean and component wise scale to unit variance.
     x_scaled = preprocessing.scale(x, with_mean=False)
     "Uncommented this line for taking out h2h feature"
-    last_x = np.column_stack((x_scaled, h2h))  # Add H2H statistics back to the mix
+    # last_x = np.column_stack((x_scaled, h2h))  # Add H2H statistics back to the mix
 
     # We need to get rid of the duplicate values in our dataset. (Around 600 dups. Will check it later)
     x_scaled_no_duplicates, indices = np.unique(x, axis=0, return_index=True)
@@ -528,7 +525,7 @@ class Models(object):
             current_year = float(self.dataset.at[i, 'year'])
             if current_year == "":
                 current_year = float(2018)
-            time_discount_factor = 0.8
+            time_discount_factor = 0.65
             # Games played earlier than the current tournament we are investigating
             earlier_games_of_p1 = [game for game in player1_games.itertuples() if game.ID_T < curr_tournament]
 
@@ -730,8 +727,6 @@ class Models(object):
                         x.append(feature)
                         y.append(label)
 
-        # Export this final feature set with labels and all the stats to RData for further analysis
-
         print("{} matches had more than 5 common opponents in the past".format(common_opponents_is_five))
         print("{} matches had more than 10 common opponents in the past".format(ten_common_opponents))
         print("{} matches 0 common opponents in the past".format(zero_common_opponents))
@@ -759,10 +754,16 @@ class Models(object):
         # Preprocess the feature and label space
         x_scaled_no_duplicates, y_no_duplicates, standard_deviations = preprocess_features_before_training(features,
                                                                                                            labels)
+        # Convert feature and label set into RDATA for further analysis
+
+        # convert_dataframe_into_rdata(pd.DataFrame(x_scaled_no_duplicates), 'features.feather')
+        # convert_dataframe_into_rdata(pd.DataFrame(y_no_duplicates), 'labels.feather')
         print("Size of our first dimension is {}.".format(np.size(x_scaled_no_duplicates, 0)))
         print("Size of our second dimension is {}.".format(np.size(x_scaled_no_duplicates, 1)))
         print("The number of UNIQUE features in our feature space is {}".format(len(x_scaled_no_duplicates)))
         print("New label set size must be {}.".format(len(y_no_duplicates)))
+        print("Number of labels with label == 1 is {}".format(np.count_nonzero(y_no_duplicates)))
+        print("Number of labels with label == 0 is {}".format(len(y_no_duplicates) - np.count_nonzero(y_no_duplicates)))
 
         # Create train and test sets for all 3 options.
         x_train, x_test, y_train, y_test = train_test_split(x_scaled_no_duplicates, y_no_duplicates, test_size=0.2,
@@ -861,10 +862,10 @@ class Models(object):
                
                 """
                 # THIS IS FOR US OPEN 2017
-
+                """
                 del match_to_results_dictionary[tuple([22056, 34511])]
                 del match_to_odds_dictionary[tuple([22056, 34511])]
-
+"""
                 """
                 #This is for qujing Challengers
                 del match_to_results_dictionary[tuple([17359, 35539])]
@@ -874,7 +875,7 @@ class Models(object):
               
                 """
                 # THIS IS FOR US OPEN 2018
-                """
+
                 del match_to_results_dictionary[tuple([18495, 29171])]
                 del match_to_results_dictionary[tuple([14606, 34861])]
                 del match_to_results_dictionary[tuple([22428, 25919])]
@@ -887,18 +888,7 @@ class Models(object):
 
                 del match_to_results_dictionary[tuple([40609, 9831])]
                 del match_to_results_dictionary[tuple([38911, 1092])]
-                del match_to_results_dictionary[tuple([29171, 18495])]
-                del match_to_results_dictionary[tuple([34861, 14606])]
 
-                del match_to_results_dictionary[tuple([25919, 22428])]
-                del match_to_results_dictionary[tuple([26381, 28586])]
-                del match_to_results_dictionary[tuple([56846, 10901])]
-                del match_to_results_dictionary[tuple([38911, 56846])]
-
-                del match_to_results_dictionary[tuple([27082, 31392])]
-                del match_to_results_dictionary[tuple([38911, 27082])]
-                del match_to_results_dictionary[tuple([9831, 40609])]
-                del match_to_results_dictionary[tuple([1092, 38911])]
 
                 del match_to_odds_dictionary[tuple([18495, 29171])]
                 del match_to_odds_dictionary[tuple([14606, 34861])]
@@ -912,19 +902,7 @@ class Models(object):
 
                 del match_to_odds_dictionary[tuple([40609, 9831])]
                 del match_to_odds_dictionary[tuple([38911, 1092])]
-                del match_to_odds_dictionary[tuple([29171, 18495])]
-                del match_to_odds_dictionary[tuple([34861, 14606])]
 
-                del match_to_odds_dictionary[tuple([25919, 22428])]
-                del match_to_odds_dictionary[tuple([26381, 28586])]
-                del match_to_odds_dictionary[tuple([56846, 10901])]
-                del match_to_odds_dictionary[tuple([38911, 56846])]
-
-                del match_to_odds_dictionary[tuple([27082, 31392])]
-                del match_to_odds_dictionary[tuple([38911, 27082])]
-                del match_to_odds_dictionary[tuple([9831, 40609])]
-                del match_to_odds_dictionary[tuple([1092, 38911])]
-                """
                 """
                 # For ATP DOHA 2017
                 del match_to_results_dictionary[tuple([30470, 25708])]
@@ -990,8 +968,8 @@ class Models(object):
                 linear_clf.fit(dt_x_train, y_no_duplicates)
 
             else:
-                # linear_clf = tree.DecisionTreeClassifier(max_depth=4)
-                linear_clf = RandomForestClassifier(n_estimators=50)
+                #linear_clf = tree.DecisionTreeClassifier(max_depth=4)
+                linear_clf = ExtraTreesClassifier(n_estimators=20)
                 linear_clf.fit(dt_x_train, y_no_duplicates)
 
                 if historical_tournament:
@@ -1007,7 +985,7 @@ class Models(object):
                 total_winnings = 0
                 count = 0
                 correct = 0
-                predictions = {}
+                predictions_dict = {}
                 match_to_results_list = list(match_to_results_dictionary.items())  # get list of matches
                 for i, (feature, result) in enumerate(zip(dt_x_test, final_results)):
 
@@ -1017,8 +995,8 @@ class Models(object):
                     match = match_to_results_list[i][0]  # can do this because everything is ordered
                     odds = match_to_odds_dictionary[tuple(match)]
 
-                    predictions[tuple(match)] = [prediction[0], result, np.asarray(prediction_probability), odds,
-                                                 odds[abs(int(prediction) - 1)]]
+                    predictions_dict[tuple(match)] = [prediction[0], result, np.asarray(prediction_probability), odds,
+                                                      odds[abs(int(prediction) - 1)]]
                     # print(predictions)
                     print("Prediction for match {} was {}. The result was {}. The prediction probability is {}."
                           "The odds were {}.The odds we chose to bet was {}".format(match, prediction, result,
@@ -1027,7 +1005,7 @@ class Models(object):
                                                                                     odds[abs(int(prediction) - 1)]))
                     max_probability = np.amax(prediction_probability)
 
-                    if max_probability > 0.7:
+                    if max_probability > 0.65:
                         print("Max probability is {}".format(max_probability))
                         if float(odds[abs(int(prediction) - 1)]) > 1.3:
                             print("The odds we selected was {}".format(odds[abs(int(prediction) - 1)]))
@@ -1063,7 +1041,7 @@ class Models(object):
                 #     winnings = winnings - bet_amount
                 #     result_dict[tuple(match)] = [prediction, result, average_probability, odds]
 
-                return predictions, result_dict
+                return predictions_dict, result_dict
             if save:
                 joblib.dump(linear_clf, 'DT_Model_3.pkl')
 
@@ -1073,7 +1051,7 @@ class Models(object):
             # Bagged_Decision_Trees(5, x_scaled_no_duplicates, y_no_duplicates, 10)
 
             # linear_clf = tree.DecisionTreeClassifier(max_depth=4)
-            linear_clf = RandomForestClassifier(n_estimators=10)
+            linear_clf = ExtraTreesClassifier(n_estimators=10)
 
             seed = 7
 
@@ -1629,15 +1607,15 @@ DT = Models("updated_stats_v3")  # Initalize the model class with our sqlite3 ad
 
 # To create the feature and label space
 """
-data_label = DT.create_feature_set('data_v12_short.txt', 'label_v12_short.txt')
+data_label = DT.create_feature_set('data_v12_short_discount_065.txt', 'label_v12_short_discount_065.txt')
 print(len(data_label[0]))
 print(len(data_label[1]))
 """
 
 # To train and make predictions on Decision Stump Model
 # US OPEN 2018-17
-
-predictions, result_dict = DT.train_decision_stump_model('data_v12_short.txt', 'label_v12_short.txt',
+"""
+DT.train_decision_stump_model('data_v12_short.txt', 'label_v12_short.txt',
                                                          number_of_features=7,
                                                          development_mode=False,
                                                          prediction_mode=False, historical_tournament=True,
@@ -1646,19 +1624,20 @@ predictions, result_dict = DT.train_decision_stump_model('data_v12_short.txt', '
                                                          test_given_model=False,
                                                          tournament_pickle_file_name='us_open_2017_odds_v2.pkl',
                                                          court_type=1)
+"""
 
 # WIMBLEDON 2018
-"""
-predictions, result_dict = DT.train_decision_stump_model('data_v11.txt', 'label_v11.txt',
-                                                         number_of_features=19,
+
+predictions, result_dict = DT.train_decision_stump_model('data_v12_short.txt', 'label_v12_short.txt',
+                                                         number_of_features=7,
                                                          development_mode=False,
-                                                         prediction_mode=False, historical_tournament=True,
+                                                         prediction_mode=True, historical_tournament=True,
                                                          save=False,
-                                                         training_mode=True,
+                                                         training_mode=False,
                                                          test_given_model=False,
-                                                         tournament_pickle_file_name='wimbledon_2018_odds_v2.pkl',
-                                                         court_type=5)
-"""
+                                                         tournament_pickle_file_name='us_open_2018_odds.pkl',
+                                                         court_type=1)
+
 """
 # To train a model and get training and testing accuracy 
 DT.train_decision_stump_model('data_v12.txt', 'label_v12.txt',
