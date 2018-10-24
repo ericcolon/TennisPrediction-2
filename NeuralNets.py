@@ -7,10 +7,11 @@ import torch
 import sklearn
 import sklearn.preprocessing
 import sklearn.model_selection
-
+import matplotlib.pyplot as plt
 import torchsample
 import torchsample.callbacks
 import torchsample.metrics
+import math
 
 
 # I Overwrite this class from torchsample. The one at torch sample does not work for multi class outputs.
@@ -51,12 +52,14 @@ class Net(torch.nn.Module):
 
         self.fc1 = torch.nn.Linear(input_size,
                                    hidden_size)  # 1st Full-Connected Layer: 3072 (input data) -> 1024 (hidden node)
+
         self.fc2 = torch.nn.Linear(hidden_size,
                                    num_classes)  # 2nd Full-Connected Layer: 1023 (hidden node) -> 10 (output class)
 
     def forward(self, x):
-        out = F.relu(self.fc1(x))  # followed by sigmoid activation function
-        out = F.relu(self.fc2(out))
+        # F.rrelu
+        out = F.rrelu(self.fc1(x))  # followed by sigmoid activation function
+        out = F.rrelu(self.fc2(out))
 
         return out
 
@@ -76,7 +79,7 @@ def preprocess_features_before_training(features, labels):
     x_shortened = np.delete(x, np.s_[-1], 1)
 
     standard_deviations = np.std(x, axis=0)
-
+    # x = x[~np.isnan(x)]
     # Center to the mean and component wise scale to unit variance.
     x_scaled = sklearn.preprocessing.scale(x, with_mean=False)
     "Uncommented this line for taking out h2h feature"
@@ -84,17 +87,13 @@ def preprocess_features_before_training(features, labels):
 
     # We need to get rid of the duplicate values in our dataset. (Around 600 dups. Will check it later)
     x_scaled_no_duplicates, indices = np.unique(x, axis=0, return_index=True)
-
+    print(len)
     y_no_duplicates = y[indices]
     return [x_scaled_no_duplicates, y_no_duplicates, standard_deviations]
 
 
 # Prepares our sets in tensor format
-def prepare_train_validation_and_test_sets(dataset_name, labelset_name):
-    pickle_in = open(dataset_name, "rb")
-    features = np.asarray(pickle.load(pickle_in))
-    pickle_in_2 = open(labelset_name, "rb")
-    labels = np.asarray(pickle.load(pickle_in_2))
+def prepare_train_validation_and_test_sets(features, labels, dev_set_size):
     # Specify the training dataset
     x_scaled_no_duplicates, y_no_duplicates, standard_deviations = preprocess_features_before_training(features,
                                                                                                        labels)
@@ -102,7 +101,7 @@ def prepare_train_validation_and_test_sets(dataset_name, labelset_name):
                                                                     test_size=0.2,
                                                                     shuffle=True)
 
-    x_train, x_val, y_train, y_val = sklearn.model_selection.train_test_split(x, y, test_size=0.2,
+    x_train, x_val, y_train, y_val = sklearn.model_selection.train_test_split(x, y, test_size=dev_set_size,
                                                                               shuffle=True)
 
     train_dataset = DS(x_train, y_train)
@@ -127,6 +126,20 @@ def prepare_train_validation_and_test_sets(dataset_name, labelset_name):
     # train_and_test_ff_network(train_loader, test_loader, x_test, y_test)
 
 
+def exp_decay(epoch, initial_rate):
+    k = 0.8
+    lrate = initial_rate * math.exp(-k * epoch)
+    return lrate
+
+
+def step_decay(epoch, initial_rate):
+    drop = 0.5
+    epochs_drop = 10.0
+    lrate = initial_rate * math.pow(drop,
+                                    math.floor((1 + epoch) / epochs_drop))
+    return lrate
+
+
 # To switch from Variable into numpy for testing
 def resize_label_arrays(y_pred_torch, y):
     y_pred_np = y_pred_torch.data.numpy()
@@ -144,19 +157,75 @@ def calculate_roc_score(y, y_pred):
 
 class NeuralNetModel(object):
 
-    def __init__(self, dataset_name, labelset_name, batchsize):
+    def __init__(self, dataset_name, labelset_name, batchsize, dev_set_size, text_file=True):
         self.batchsize = batchsize
-        self.x_train, self.y_train, self.x_test, self.y_test, self.x_val, self.y_val = prepare_train_validation_and_test_sets(
-            dataset_name, labelset_name)
+        if text_file:
+            pickle_in = open(dataset_name, "rb")
+            features = np.asarray(pickle.load(pickle_in))
+            pickle_in_2 = open(labelset_name, "rb")
+            labels = np.asarray(pickle.load(pickle_in_2))
+            # print(features.shape)
+            # print(labels.shape)
+            self.x_train, self.y_train, self.x_test, self.y_test, self.x_val, self.y_val = prepare_train_validation_and_test_sets(
+                features, labels, dev_set_size)
+        # print(self.x_train.shape)
+        # print(self.y_train.shape)
 
-    def train_nn_net_with_torchsample(self):
-        model = Net(7, 64, 2)
-        optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.55)
+        else:
+            # print(dataset_name.shape)
+            # print(labelset_name.shape)
+
+            self.x_train, self.y_train, self.x_test, self.y_test, self.x_val, self.y_val = prepare_train_validation_and_test_sets(
+                dataset_name, labelset_name, dev_set_size)
+        # print(self.x_train.shape)
+        # print(self.y_train.shape)
+
+        self.lrs = []
+        self.epochs = []
+        self.val_losses = []
+        self.train_nn_net_with_torchsample(7, self.batchsize)
+
+    def early_stopping_schedule(self, epoch, lr, current_val_loss):
+        self.lrs.append(lr)
+        self.epochs.append(epoch)
+        self.val_losses.append(current_val_loss)
+
+    def lr_schedule(self, epoch, lr, current_val_loss):
+        new_lr = exp_decay(epoch, lr[0])
+        self.lrs.append(new_lr)
+        self.epochs.append(epoch)
+        self.val_losses.append(current_val_loss)
+        return new_lr
+
+    def clr_schedule(self, epoch, lr):
+        # """ CYLICAL LEARNING RATE IMPLEMENTATION"
+        print('\nCurrent learning weight is {}'.format(lr))
+        self.lrs.append(lr)
+        self.epochs.append(epoch)
+
+    def train_nn_net_with_torchsample(self, feature_size, batch_size):
+        model = Net(feature_size, 128, 2)
+        # lr=0.1, momentum=0.55
+        optimizer = optim.SGD(model.parameters(), lr=0.0008, momentum=0.8, nesterov=True)
         criterion = torch.nn.CrossEntropyLoss()
-        callbacks = [torchsample.callbacks.EarlyStopping(monitor='val_loss',  # monitor loss
-                                                         min_delta=0,
-                                                         patience=10
-                                                         )]#,torchsample.callbacks.LRScheduler(schedule=1)]
+        callbacks = [torchsample.callbacks.ReduceLROnPlateau(schedule=self.early_stopping_schedule
+                                                             , monitor='val_loss',
+                                                             factor=0.8,
+                                                             patience=8,
+                                                             cooldown=1,
+                                                             epsilon=0.002,
+                                                             min_lr=1e-8,
+                                                             verbose=1),
+                     torchsample.callbacks.ModelCheckpoint(directory='~aysekozlu/PyCharmProjects/TennisModel',
+                                                           monitor='val_loss',
+                                                           save_best_only=True, verbose=1)]
+        """
+        torchsample.callbacks.LRScheduler(self.lr_schedule),
+        [torchsample.callbacks.EarlyStopping(schedule = self.early_stopping_schedule,
+                                                         monitor='val_loss',  # monitor loss
+                                                         min_delta=1e-5,
+                                                         patience=10)"""
+        # torchsample.callbacks.CyclicLR(self.clr_record)]
 
         metrics = [Binary_Classification()]  # Keep track of validation and training accuracy each epoch
         trainer = torchsample.modules.ModuleTrainer(model)
@@ -164,17 +233,16 @@ class NeuralNetModel(object):
 
         trainer.compile(loss=criterion,
                         optimizer=optimizer,
-                       metrics=metrics)
+                        metrics=metrics)
         trainer.set_callbacks(callbacks)
 
         trainer.fit(self.x_train, self.y_train,
                     val_data=(self.x_val, self.y_val),
-                    num_epoch=250,
-                    batch_size=64,
+                    num_epoch=200,
+                    batch_size=batch_size,
                     verbose=1)
 
         trainer.evaluate(self.x_train, self.y_train)
-
 
         # Calculate training accuracy
         y_pred_train_np, y_train_np = resize_label_arrays(trainer.predict(self.x_train), self.y_train)
@@ -186,6 +254,84 @@ class NeuralNetModel(object):
         print(
             "Testing accuracy {}".format(float(np.count_nonzero(y_pred_test_np == y_test_np)) / float(len(y_test_np))))
 
+        plt.figure()
+        plt.plot(self.epochs, self.lrs)
+        plt.title('Learning rate over Epoches')
+        plt.xlabel('Number of Epoch')
+        plt.ylabel('Learning Rate')
+        plt.show()
+        plt.figure()
+        plt.plot(self.epochs, self.val_losses)
+        plt.title('Loss over Epoches')
+        plt.ylabel('Validation Loss')
+        plt.xlabel('Number of Epoch')
+        plt.show()
 
-NN = NeuralNetModel("data_v12_short.txt", "label_v12_short.txt", 64)
-NN.train_nn_net_with_torchsample()
+
+#NN = NeuralNetModel("data_v12_short.txt", "label_v12_short.txt", 128, 0.5)
+
+"""
+ optimizer = optim.SGD(model.parameters(), lr=0.1, momentum=0.55)
+        criterion = torch.nn.CrossEntropyLoss()
+        callbacks = [torchsample.callbacks.ReduceLROnPlateau(schedule=self.early_stopping_schedule
+                                                             , monitor='val_loss',
+                                                             factor=0.8,
+                                                             patience=10,
+                                                             cooldown=3,
+                                                             epsilon=0.03,
+                                                             min_lr=1e-8,
+                                                             verbose=1)]
+                                                             
+results: 
+Epoch 100/100: : 497 batches [00:00, 785.92 batches/s, val_loss=0.6298, val_acc=64.85, acc=65.08, loss=0.4700, lr=0.0210]                 
+Training accuracy 0.6523274883310206
+Testing accuracy 0.6534216335540839
+
+
+optimizer = optim.SGD(model.parameters(), lr=0.025, momentum=0.8)
+        criterion = torch.nn.CrossEntropyLoss()
+        callbacks = [torchsample.callbacks.ReduceLROnPlateau(schedule=self.early_stopping_schedule
+                                                             , monitor='val_loss',
+                                                             factor=0.5,
+                                                             patience=10,
+                                                             cooldown=3,
+                                                             epsilon=0,
+                                                             min_lr=1e-8,
+                                                             verbose=1)]
+                                                             
+                                                             batch size = 128 
+                                                             Epoch 99/100: : 249 batches [00:00, 968.38 batches/s, val_loss=0.6286, val_acc=64.95, acc=64.86, loss=0.6067, lr=0.0250]                  
+Epoch 100/100: : 249 batches [00:00, 946.21 batches/s, val_loss=0.6286, val_acc=64.97, acc=64.84, loss=0.6066, lr=0.0250]                  
+
+
+
+
+Randomized Relu:
+   model = Net(feature_size, 128, 2)
+        # lr=0.1, momentum=0.55
+        optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.8)
+        criterion = torch.nn.CrossEntropyLoss()
+        callbacks = [torchsample.callbacks.ReduceLROnPlateau(schedule=self.early_stopping_schedule
+                                                             , monitor='val_loss',
+                                                             factor=0.5,
+                                                             patience=8,
+                                                             cooldown=1,
+                                                             epsilon=0.001,
+                                                             min_lr=1e-8,
+                                                             verbose=1)]
+OR - LEARNING RATE SLIGHTLY LESS  
+optimizer = optim.SGD(model.parameters(), lr=0.0008, momentum=0.8, nesterov=True)
+        criterion = torch.nn.CrossEntropyLoss()
+        callbacks = [torchsample.callbacks.ReduceLROnPlateau(schedule=self.early_stopping_schedule
+                                                             , monitor='val_loss',
+                                                             factor=0.8,
+                                                             patience=8,
+                                                             cooldown=1,
+                                                             epsilon=0.002,
+                                                             min_lr=1e-8,
+                                                             verbose=1)]                                          
+Epoch 100/100: : 249 batches [00:00, 505.84 batches/s, val_loss=0.6334, val_acc=64.95, acc=65.26, loss=0.6241, lr=0.0030]                 
+Training accuracy 0.6518228838148101
+Testing accuracy 0.6529801324503312
+batch size = 128 
+ """

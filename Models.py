@@ -6,13 +6,15 @@ import statistics as s
 import time
 from collections import Counter
 from collections import defaultdict
+from itertools import islice
 from random import random
-
-import boto3  # For Amazon EC2 Instance
-
-import feather  # For R-Data conversion
-import matplotlib.pyplot as plt
+import math
 import numpy as np
+import matplotlib.pyplot as plt
+import boto3  # For Amazon EC2 Instance
+from NeuralNets import *
+import feather  # For R-Data conversion
+import torch as th
 import pandas as pd
 from matplotlib.legend_handler import HandlerLine2D
 # Sklearn imports
@@ -30,7 +32,7 @@ from sqlalchemy import create_engine
 
 # Other Classes
 from OddsScraper import loads_odds_into_a_list
-
+# from NeuralNets import *
 # Inputs
 from sklearn.linear_model import Lasso, ElasticNet
 from sklearn.ensemble import RandomForestRegressor
@@ -459,6 +461,8 @@ class Models(object):
         start_time = time.time()
         zero_common_opponents = 0
         ten_common_opponents = 0
+        feature_uncertainty_dict = {}
+
         x = []
         y = []
         court_dict = collections.defaultdict(dict)
@@ -525,7 +529,7 @@ class Models(object):
             current_year = float(self.dataset.at[i, 'year'])
             if current_year == "":
                 current_year = float(2018)
-            time_discount_factor = 0.65
+            time_discount_factor = 0.8
             # Games played earlier than the current tournament we are investigating
             earlier_games_of_p1 = [game for game in player1_games.itertuples() if game.ID_T < curr_tournament]
 
@@ -553,10 +557,10 @@ class Models(object):
             # TO DO : YOU HAVE TO ADD THE CURRENT OPPONENT IF THEY HAVE PLAYED BEFORE
             common_opponents = sa.intersection(sb)
 
-            if len(common_opponents) < 5:
+            if len(common_opponents) == 0:
                 zero_common_opponents = zero_common_opponents + 1
-                # If they have zero common opponents, we cannot get features for this match
                 continue
+                # If they have zero common opponents, we cannot get features for this match
 
             else:
                 if len(common_opponents) > 9:
@@ -570,60 +574,117 @@ class Models(object):
                                          (player2_id == game.ID1 and opponent == game.ID2) or (
                                                  player2_id == game.ID2 and opponent == game.ID1)]
 
+                weights_of_p1 = defaultdict(list)
+                weights_of_p2 = defaultdict(list)
+                for opponent in common_opponents:
+                    for game in player1_games_updated:
+                        if opponent == game.ID2 or opponent == game.ID1:
+                            #   print("Current Opponent {}".format(opponent))
+                            #   print("Current Court Id {}".format(current_court_id))
+                            #   print("Court Id of the game Id {}".format(game.court_type))
+                            #   print("Current Year {}".format(current_year))
+                            #   print("Game Year {}".format(game.year))
+                            #   print("Surface matrix weight {}".format(court_dict[current_court_id][game.court_type]))
+                            #  print("Time Discount {}".format(
+                            #    calculate_time_discount(time_discount_factor, current_year, game.year)))
+                            weights_of_p1[opponent].append(court_dict[current_court_id][
+                                                               game.court_type] * calculate_time_discount(
+                                time_discount_factor, current_year, game.year))
+                for opponent in common_opponents:
+                    for game in player2_games_updated:
+                        if opponent == game.ID2 or opponent == game.ID1:
+                            #   print("Current Opponent {}".format(opponent))
+                            #   print("Current Court Id {}".format(current_court_id))
+                            #   print("Court Id of the game Id {}".format(game.court_type))
+                            #   print("Current Year {}".format(current_year))
+                            #   print("Game Year {}".format(game.year))
+                            #   print("Surface matrix weight {}".format(court_dict[current_court_id][game.court_type]))
+                            #  print("Time Discount {}".format(
+                            #    calculate_time_discount(time_discount_factor, current_year, game.year)))
+                            weights_of_p2[opponent].append(court_dict[current_court_id][
+                                                               game.court_type] * calculate_time_discount(
+                                time_discount_factor, current_year, game.year))
+                sum_of_weights = 0
+                for key in weights_of_p1.keys() & weights_of_p2.keys():
+                    # print(key, weights_of_p1[key], weights_of_p2[key])
+                    sum_of_weights = sum_of_weights + (sum(weights_of_p1[key]) * sum(weights_of_p2[key]))
+                overall_uncertainty = 1 / sum_of_weights
+
                 # Get the stats from those matches. Weighted by their surface matrix.
                 list_of_serveadv_1 = [game.SERVEADV1 * court_dict[current_court_id][
-                    game.court_type] * calculate_time_discount(time_discount_factor, current_year, game.year)
-                                      if game.ID1 == player1_id else game.SERVEADV2 * court_dict[current_court_id][
-                    game.court_type] * calculate_time_discount(time_discount_factor, current_year, game.year) for game
+                    game.court_type] * calculate_time_discount(time_discount_factor, current_year,
+                                                               game.year)
+                                      if game.ID1 == player1_id else game.SERVEADV2 *
+                                                                     court_dict[current_court_id][
+                                                                         game.court_type] * calculate_time_discount(
+                    time_discount_factor, current_year, game.year) for game
                                       in
                                       player1_games_updated]
 
                 list_of_serveadv_2 = [game.SERVEADV1 * court_dict[current_court_id][
-                    game.court_type] * calculate_time_discount(time_discount_factor, current_year, game.year)
-                                      if game.ID1 == player2_id else game.SERVEADV2 * court_dict[current_court_id][
-                    game.court_type] * calculate_time_discount(time_discount_factor, current_year, game.year) for game
+                    game.court_type] * calculate_time_discount(time_discount_factor, current_year,
+                                                               game.year)
+                                      if game.ID1 == player2_id else game.SERVEADV2 *
+                                                                     court_dict[current_court_id][
+                                                                         game.court_type] * calculate_time_discount(
+                    time_discount_factor, current_year, game.year) for game
                                       in
                                       player2_games_updated]
 
                 list_of_complete_1 = [game.COMPLETE1 * court_dict[current_court_id][
-                    game.court_type] * calculate_time_discount(time_discount_factor, current_year, game.year)
-                                      if game.ID1 == player1_id else game.COMPLETE2 * court_dict[current_court_id][
-                    game.court_type] * calculate_time_discount(time_discount_factor, current_year, game.year) for game
+                    game.court_type] * calculate_time_discount(time_discount_factor, current_year,
+                                                               game.year)
+                                      if game.ID1 == player1_id else game.COMPLETE2 *
+                                                                     court_dict[current_court_id][
+                                                                         game.court_type] * calculate_time_discount(
+                    time_discount_factor, current_year, game.year) for game
                                       in
                                       player1_games_updated]
 
                 list_of_complete_2 = [game.COMPLETE1 * court_dict[current_court_id][
-                    game.court_type] * calculate_time_discount(time_discount_factor, current_year, game.year)
-                                      if game.ID1 == player2_id else game.COMPLETE2 * court_dict[current_court_id][
-                    game.court_type] * calculate_time_discount(time_discount_factor, current_year, game.year) for game
+                    game.court_type] * calculate_time_discount(time_discount_factor, current_year,
+                                                               game.year)
+                                      if game.ID1 == player2_id else game.COMPLETE2 *
+                                                                     court_dict[current_court_id][
+                                                                         game.court_type] * calculate_time_discount(
+                    time_discount_factor, current_year, game.year) for game
                                       in
                                       player2_games_updated]
 
                 list_of_w1sp_1 = [game.W1SP1 * court_dict[current_court_id][
-                    game.court_type] * calculate_time_discount(time_discount_factor, current_year, game.year)
+                    game.court_type] * calculate_time_discount(time_discount_factor, current_year,
+                                                               game.year)
                                   if game.ID1 == player1_id else game.W1SP2 * court_dict[current_court_id][
-                    game.court_type] * calculate_time_discount(time_discount_factor, current_year, game.year) for game
+                    game.court_type] * calculate_time_discount(time_discount_factor, current_year,
+                                                               game.year) for game
                                   in
                                   player1_games_updated]
 
                 list_of_w1sp_2 = [game.W1SP1 * court_dict[current_court_id][
-                    game.court_type] * calculate_time_discount(time_discount_factor, current_year, game.year)
+                    game.court_type] * calculate_time_discount(time_discount_factor, current_year,
+                                                               game.year)
                                   if game.ID1 == player2_id else game.W1SP2 * court_dict[current_court_id][
-                    game.court_type] * calculate_time_discount(time_discount_factor, current_year, game.year) for game
+                    game.court_type] * calculate_time_discount(time_discount_factor, current_year,
+                                                               game.year) for game
                                   in
                                   player2_games_updated]
 
                 list_of_breaking_points_1 = [game.BP1 * court_dict[current_court_id]
                 [game.court_type] * calculate_time_discount(time_discount_factor, current_year, game.year)
-                                             if game.ID1 == player1_id else game.BP2 * court_dict[current_court_id][
-                    game.court_type] * calculate_time_discount(time_discount_factor, current_year, game.year) for game
+                                             if game.ID1 == player1_id else game.BP2 *
+                                                                            court_dict[current_court_id][
+                                                                                game.court_type] * calculate_time_discount(
+                    time_discount_factor, current_year, game.year) for game
                                              in
                                              player1_games_updated]
 
                 list_of_breaking_points_2 = [game.BP1 * court_dict[current_court_id][
-                    game.court_type] * calculate_time_discount(time_discount_factor, current_year, game.year)
-                                             if game.ID1 == player2_id else game.BP2 * court_dict[current_court_id][
-                    game.court_type] * calculate_time_discount(time_discount_factor, current_year, game.year) for game
+                    game.court_type] * calculate_time_discount(time_discount_factor, current_year,
+                                                               game.year)
+                                             if game.ID1 == player2_id else game.BP2 *
+                                                                            court_dict[current_court_id][
+                                                                                game.court_type] * calculate_time_discount(
+                    time_discount_factor, current_year, game.year) for game
                                              in
                                              player2_games_updated]
 
@@ -664,14 +725,16 @@ class Models(object):
                 list_of_h2h_1 = [game.H12H * court_dict[current_court_id][game.court_type]
                                  * calculate_time_discount(time_discount_factor, current_year, game.year)
                                  if game.ID1 == player1_id else game.H21H * court_dict[current_court_id][
-                    game.court_type] * calculate_time_discount(time_discount_factor, current_year, game.year) for game
+                    game.court_type] * calculate_time_discount(time_discount_factor, current_year,
+                                                               game.year) for game
                                  in
                                  player1_games_updated]
 
                 list_of_h2h_2 = [game.H12H * court_dict[current_court_id][game.court_type]
                                  * calculate_time_discount(time_discount_factor, current_year, game.year)
                                  if game.ID1 == player2_id else game.H21H * court_dict[current_court_id][
-                    game.court_type] * calculate_time_discount(time_discount_factor, current_year, game.year) for game
+                    game.court_type] * calculate_time_discount(time_discount_factor, current_year,
+                                                               game.year) for game
                                  in
                                  player2_games_updated]
 
@@ -707,12 +770,15 @@ class Models(object):
                     if np.any(np.isnan(feature)):
                         continue
                     else:
+                        # print(feature.tolist() + [label])
+                        feature_uncertainty_dict[tuple(feature.tolist() + [label])] = overall_uncertainty
                         x.append(feature)
                         y.append(label)
 
                 else:
                     # Player 1 has won. We switch Player 2 and Player 1 positions and label it 0 (Player 1 win, player 2 loss).
                     # This is necessary because our dataset has a specific format where first player always wins.
+
                     feature = np.array(
                         # [serveadv_2, complete_2, w1sp_2, aces_2, bp_2, tpw2, serveadv_1, complete_1, w1sp_1, aces_1,
                         #  bp_1, tpw1, serveadv_2 - serveadv_1, complete_2 - complete_1, w1sp_2 - w1sp_1, aces_2 - aces_1,
@@ -724,33 +790,61 @@ class Models(object):
                     if np.any(np.isnan(feature)):
                         continue
                     else:
+                        #  print(feature.tolist() + [label])
+
                         x.append(feature)
                         y.append(label)
+                        feature_uncertainty_dict[tuple(feature.tolist() + [label])] = overall_uncertainty
 
-        print("{} matches had more than 5 common opponents in the past".format(common_opponents_is_five))
+        print("{} matches had common opponents in the past".format(common_opponents_is_five))
         print("{} matches had more than 10 common opponents in the past".format(ten_common_opponents))
         print("{} matches 0 common opponents in the past".format(zero_common_opponents))
         print("The total number of matches in our feature set is {}".format(len(x)))
         print("Time took for creating stat features for each match took--- %s seconds ---" % (time.time() - start_time))
-        with open(feature_set_name, "wb") as fp:  # Pickling
-            pickle.dump(x, fp)
+        # with open(feature_set_name, "wb") as fp:  # Pickling
+        # pickle.dump(x, fp)
 
         with open(label_set_name, "wb") as fp:  # Pickling
             pickle.dump(y, fp)
 
-        return [x, y]
+        with open(feature_set_name, "wb") as fp:  # Pickling
+            pickle.dump(feature_uncertainty_dict, fp)
+
+        return [feature_uncertainty_dict, y]
 
     # Trains, develops and makes predictions for Stacked generalization ensemble models
     def train_decision_stump_model(self, dataset_name, labelset_name, number_of_features, development_mode,
                                    prediction_mode, historical_tournament, training_mode,
                                    test_given_model, save, tournament_pickle_file_name, court_type):
 
+        # print("We are currenty working with data set {} and label set {}".format(dataset_name, labelset_name))
+        # pickle_in = open(dataset_name, "rb")
+        # features = np.asarray(pickle.load(pickle_in))
+        # pickle_in_2 = open(labelset_name, "rb")
+        # labels = np.asarray(pickle.load(pickle_in_2))
+
         print("We are currenty working with data set {} and label set {}".format(dataset_name, labelset_name))
         pickle_in = open(dataset_name, "rb")
-        features = np.asarray(pickle.load(pickle_in))
+        features_uncertainty_dict = pickle.load(pickle_in)
         pickle_in_2 = open(labelset_name, "rb")
-        labels = np.asarray(pickle.load(pickle_in_2))
+        # labels = np.asarray(pickle.load(pickle_in_2))
 
+        print(len(features_uncertainty_dict))
+
+        # sort the dictionary by the uncertainty of matches
+        sorted_dict = {r: features_uncertainty_dict[r] for r in
+                       sorted(features_uncertainty_dict, key=features_uncertainty_dict.get, reverse=False)}
+
+        features = []
+        labels = []
+        # get the %50 of least uncertain matches
+        for k, v in islice(sorted_dict.items(), math.floor(len(sorted_dict) * 0.7)):
+            features_and_labels = list(k)
+            features.append(np.asarray(features_and_labels[0:7]))
+            labels.append(np.asarray(features_and_labels[-1]))
+
+        features = np.asarray(features)
+        labels = np.asarray(labels)
         # Preprocess the feature and label space
         x_scaled_no_duplicates, y_no_duplicates, standard_deviations = preprocess_features_before_training(features,
                                                                                                            labels)
@@ -769,6 +863,9 @@ class Models(object):
         x_train, x_test, y_train, y_test = train_test_split(x_scaled_no_duplicates, y_no_duplicates, test_size=0.2,
                                                             shuffle=True)
 
+        # nn = NeuralNetModel(nn_train.values,
+        #                    nn_labels.values.reshape(-1), batchsize=64,
+        #                   text_file=False, dev_set_size=0.4)
         # This mode is used for hyper parameter optimization
         if development_mode:
             print("We are in development mode.")
@@ -889,7 +986,6 @@ class Models(object):
                 del match_to_results_dictionary[tuple([40609, 9831])]
                 del match_to_results_dictionary[tuple([38911, 1092])]
 
-
                 del match_to_odds_dictionary[tuple([18495, 29171])]
                 del match_to_odds_dictionary[tuple([14606, 34861])]
                 del match_to_odds_dictionary[tuple([22428, 25919])]
@@ -968,7 +1064,7 @@ class Models(object):
                 linear_clf.fit(dt_x_train, y_no_duplicates)
 
             else:
-                #linear_clf = tree.DecisionTreeClassifier(max_depth=4)
+                # linear_clf = tree.DecisionTreeClassifier(max_depth=4)
                 linear_clf = ExtraTreesClassifier(n_estimators=20)
                 linear_clf.fit(dt_x_train, y_no_duplicates)
 
@@ -1047,11 +1143,18 @@ class Models(object):
 
         if training_mode:
             print("We are in training mode")
+            print("Neural Net Model")
+           # nn = NeuralNetModel(x_scaled_no_duplicates, y_no_duplicates.reshape(-1), batchsize=128, dev_set_size=0.5,
+             #                   text_file=False)
 
             # Bagged_Decision_Trees(5, x_scaled_no_duplicates, y_no_duplicates, 10)
 
-            # linear_clf = tree.DecisionTreeClassifier(max_depth=4)
-            linear_clf = ExtraTreesClassifier(n_estimators=10)
+            linear_clf = tree.DecisionTreeClassifier(max_depth=4)
+            model = Net(7, 128, 2)
+            model.load_state_dict(torch.load('ckpt.pth.tar'))
+            print(model.parameters())
+
+            # linear_clf = ExtraTreesClassifier(n_estimators=10)
 
             seed = 7
 
@@ -1107,6 +1210,11 @@ class Models(object):
             x_train_df, x_test_df = self.add_class_probabilities_to_features(
                 BaggingClassifier(base_estimator=tree.DecisionTreeClassifier(max_depth=4), n_estimators=20,
                                   random_state=seed), x_train_df.values, x_test_df.values, y_train)
+            nn_train = pd.concat([x_train_df, x_test_df], axis=0)
+            nn_labels = pd.concat([pd.DataFrame(y_train), pd.DataFrame(y_test)], axis=0)
+
+            print(nn_train.values.shape)
+            print(nn_labels.values.shape)
 
             # We stack them and run another model on top of it
             self.calculate_accuracy_and_roc_score(LogisticRegression(random_state=0, solver='lbfgs'), x_train_df.values,
@@ -1588,11 +1696,6 @@ class Models(object):
                 return np.zeros([number_of_features, ])  # you have to change this number as you keep adding features!
             else:
 
-                # feature = np.array(
-                #   [serveadv_1, complete_1, w1sp_1, aces_1, bp_1, tpw1, serveadv_2, complete_2, w1sp_2, aces_2,
-                #   bp_2, tpw2, serveadv_1 - serveadv_2, complete_1 - complete_2, w1sp_1 - w1sp_2, aces_1 - aces_2,
-                #   bp_1 - bp_2, tpw1 - tpw2, h2h_1 - h2h_2])
-
                 feature = np.array(
                     [serveadv_1 - serveadv_2, complete_1 - complete_2, w1sp_1 - w1sp_2, aces_1 - aces_2,
                      bp_1 - bp_2, tpw1 - tpw2, h2h_1 - h2h_2])
@@ -1606,38 +1709,36 @@ class Models(object):
 DT = Models("updated_stats_v3")  # Initalize the model class with our sqlite3 advanced stats database
 
 # To create the feature and label space
-"""
-data_label = DT.create_feature_set('data_v12_short_discount_065.txt', 'label_v12_short_discount_065.txt')
-print(len(data_label[0]))
-print(len(data_label[1]))
-"""
+
+# data_label = DT.create_feature_set('uncertainty_dict_v14.txt', 'label_v14.txt')
+# print(len(data_label[0]))
+# print(len(data_label[1]))
 
 # To train and make predictions on Decision Stump Model
 # US OPEN 2018-17
+
+DT.train_decision_stump_model('uncertainty_dict_v14.txt', 'label_v14.txt',
+                              number_of_features=7,
+                              development_mode=False,
+                              prediction_mode=False, historical_tournament=True,
+                              save=False,
+                              training_mode=True,
+                              test_given_model=False,
+                              tournament_pickle_file_name='us_open_2017_odds_v2.pkl',
+                              court_type=1)
+
+# WIMBLEDON 2018
 """
-DT.train_decision_stump_model('data_v12_short.txt', 'label_v12_short.txt',
+predictions, result_dict = DT.train_decision_stump_model('data_v12_short.txt', 'label_v12_short.txt',
                                                          number_of_features=7,
                                                          development_mode=False,
                                                          prediction_mode=False, historical_tournament=True,
                                                          save=False,
                                                          training_mode=True,
                                                          test_given_model=False,
-                                                         tournament_pickle_file_name='us_open_2017_odds_v2.pkl',
-                                                         court_type=1)
-"""
-
-# WIMBLEDON 2018
-
-predictions, result_dict = DT.train_decision_stump_model('data_v12_short.txt', 'label_v12_short.txt',
-                                                         number_of_features=7,
-                                                         development_mode=False,
-                                                         prediction_mode=True, historical_tournament=True,
-                                                         save=False,
-                                                         training_mode=False,
-                                                         test_given_model=False,
                                                          tournament_pickle_file_name='us_open_2018_odds.pkl',
                                                          court_type=1)
-
+"""
 """
 # To train a model and get training and testing accuracy 
 DT.train_decision_stump_model('data_v12.txt', 'label_v12.txt',
