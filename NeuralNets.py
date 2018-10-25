@@ -12,6 +12,7 @@ import torchsample
 import torchsample.callbacks
 import torchsample.metrics
 import math
+from torch.autograd import Variable
 
 
 # I Overwrite this class from torchsample. The one at torch sample does not work for multi class outputs.
@@ -26,6 +27,8 @@ class Binary_Classification(torchsample.metrics.BinaryAccuracy):
         self.correct_count += np.count_nonzero(y_pred == y_true)
         self.total_count += len(y_pred)
         accuracy = 100. * float(self.correct_count) / float(self.total_count)
+        # false_positive_rate, true_positive_rate, thresholds = sklearn.metrics.roc_curve(y_true, y_pred)
+        # roc_auc = sklearn.metrics.auc(false_positive_rate, true_positive_rate)
         return accuracy
 
 
@@ -99,10 +102,10 @@ def prepare_train_validation_and_test_sets(features, labels, dev_set_size):
                                                                                                        labels)
     x, x_test, y, y_test = sklearn.model_selection.train_test_split(x_scaled_no_duplicates, y_no_duplicates,
                                                                     test_size=0.2,
-                                                                    shuffle=True)
+                                                                    shuffle=False)
 
     x_train, x_val, y_train, y_val = sklearn.model_selection.train_test_split(x, y, test_size=dev_set_size,
-                                                                              shuffle=True)
+                                                                              shuffle=False)
 
     train_dataset = DS(x_train, y_train)
     print("Length of train SET is {}".format(train_dataset.__len__()))
@@ -142,6 +145,7 @@ def step_decay(epoch, initial_rate):
 
 # To switch from Variable into numpy for testing
 def resize_label_arrays(y_pred_torch, y):
+    prob = F.softmax(y_pred_torch, dim=1)
     y_pred_np = y_pred_torch.data.numpy()
     pred_np = np.argmax(y_pred_np, axis=1)
     pred_np = np.reshape(pred_np, len(pred_np), order='F').reshape((len(pred_np), 1))
@@ -149,16 +153,103 @@ def resize_label_arrays(y_pred_torch, y):
     return pred_np, label_np
 
 
-def calculate_roc_score(y, y_pred):
+# To resize when we are making predictions on unseen data
+def resize_prediction_arrays(y_pred_torch, y):
+    #   prob = F.softmax(y_pred_torch, dim=1)
+    #  print(prob)
+    y_pred_np = y_pred_torch.data.numpy()
+    pred_np = np.argmax(y_pred_np, axis=1)
+    pred_np = np.reshape(pred_np, len(pred_np), order='F').reshape((len(pred_np), 1))
+    label_np = y.reshape(len(y), 1)
+    return pred_np, label_np
+
+
+def calculate_roc_score(y, y_pred, train):
     false_positive_rate, true_positive_rate, thresholds = sklearn.metrics.roc_curve(y, y_pred)
     roc_auc = sklearn.metrics.auc(false_positive_rate, true_positive_rate)
-    print("ROC SCORE for training is : {}".format(roc_auc))
+    print("ROC SCORE for " + train + " is : {}".format(roc_auc))
+
+
+def make_nn_predictions(filename, tournament_pickle_file_name, x_scaled_no_duplicates, y_no_duplicates,
+                        features_from_prediction_final, final_results,
+                        match_to_results_dictionary, match_to_odds_dictionary):
+    bet_amount = 10
+    total_winnings = 0
+    count = 0
+    correct = 0
+    predictions_dict = {}
+    match_to_results_list = list(match_to_results_dictionary.items())  # get list of matches
+
+    linear_clf = Net(7, 128, 2)
+    linear_clf.load_state_dict(torch.load(filename))  # 'ckpt.pth02.tar'
+
+    y_pred, y_test = resize_prediction_arrays(
+        linear_clf(Variable(torch.from_numpy(x_scaled_no_duplicates).float())), y_no_duplicates)
+    print("Training accuracy {}".format(float(np.count_nonzero(y_pred == y_test)) / float(len(y_test))))
+    calculate_roc_score(y_test, y_pred, 'train')
+
+    y_pred, y_test = resize_prediction_arrays(
+        linear_clf(Variable(torch.from_numpy(features_from_prediction_final).float())), final_results)
+    print("Prediction accuracy {}".format(float(np.count_nonzero(y_pred == y_test)) / float(len(y_test))))
+    calculate_roc_score(y_test, y_pred, 'test')
+
+    for i, (feature, result) in enumerate(zip(features_from_prediction_final, final_results)):
+        # USING SIMPLE FEED FORWARD NEURAL NETWORK
+        # print(feature.shape)
+        # print(feature.reshape(1, -1).shape)
+        class_predictions = linear_clf(Variable(torch.from_numpy(feature).float()))
+        # print(class_predictions)
+        # print(class_predictions.shape)
+        prob = F.softmax(class_predictions, dim=0)
+
+        # print(type(prob.data.numpy()))
+        prediction_probability = prob.data.numpy()
+
+        prediction = np.argmax(prob.data.numpy())
+        max_probability = np.max(prob.data.numpy())
+
+        match = match_to_results_list[i][0]  # can do this because everything is ordered
+        odds = match_to_odds_dictionary[tuple(match)]
+        predictions_dict[tuple(match)] = [prediction, result, np.asarray(prediction_probability),
+                                          odds,
+                                          odds[abs(int(prediction) - 1)]]
+        # print(predictions)
+        print("Prediction for match {} was {}. The result was {}. The prediction probability is {}."
+              "The odds were {}.The odds we chose to bet was {}".format(match, prediction, result,
+                                                                        prediction_probability
+                                                                        , odds,
+                                                                        odds[abs(int(prediction) - 1)]))
+        if max_probability > 0.6:
+            print("Max probability is {}".format(max_probability))
+            if float(odds[abs(int(prediction) - 1)]) > 1.3:
+                print("The odds we selected was {}".format(odds[abs(int(prediction) - 1)]))
+
+                if result == prediction:
+
+                    if abs(float(odds[abs(int(prediction) - 1)])) < 20:
+                        correct = correct + 1
+                        count = count + 1
+                        total_winnings = total_winnings + (
+                                bet_amount * float(odds[abs(int(prediction) - 1)]))
+                else:
+                    count = count + 1
+                    total_winnings = total_winnings - bet_amount
+
+        print("Our total winnings so far is {}".format(total_winnings))
+
+    print("Total amount of bets we made is: {}".format(bet_amount * count))
+    print("Total Winnings: {}".format(total_winnings))
+    ROI = (total_winnings - (bet_amount * count)) / (bet_amount * count) * 100
+    print("Our ROI for {} was: {}.".format(tournament_pickle_file_name, ROI))
+    print("Accuracy over max probability and with odd threshold is {}.".format(correct / count))
+    return linear_clf
 
 
 class NeuralNetModel(object):
 
-    def __init__(self, dataset_name, labelset_name, batchsize, dev_set_size, text_file=True):
+    def __init__(self, dataset_name, labelset_name, batchsize, dev_set_size, threshold, text_file=True):
         self.batchsize = batchsize
+        self.threshold = threshold  # used for writing name of model file
         if text_file:
             pickle_in = open(dataset_name, "rb")
             features = np.asarray(pickle.load(pickle_in))
@@ -206,19 +297,18 @@ class NeuralNetModel(object):
     def train_nn_net_with_torchsample(self, feature_size, batch_size):
         model = Net(feature_size, 128, 2)
         # lr=0.1, momentum=0.55
-        optimizer = optim.SGD(model.parameters(), lr=0.0008, momentum=0.8, nesterov=True)
+        optimizer = optim.SGD(model.parameters(), lr=0.02, momentum=0.8, nesterov=True)
         criterion = torch.nn.CrossEntropyLoss()
         callbacks = [torchsample.callbacks.ReduceLROnPlateau(schedule=self.early_stopping_schedule
                                                              , monitor='val_loss',
                                                              factor=0.8,
                                                              patience=8,
-                                                             cooldown=1,
+                                                             cooldown=5,
                                                              epsilon=0.002,
                                                              min_lr=1e-8,
                                                              verbose=1),
                      torchsample.callbacks.ModelCheckpoint(directory='~aysekozlu/PyCharmProjects/TennisModel',
-                                                           monitor='val_loss',
-                                                           save_best_only=True, verbose=1)]
+                                                           monitor='val_loss', save_best_only=True, verbose=1)]
         """
         torchsample.callbacks.LRScheduler(self.lr_schedule),
         [torchsample.callbacks.EarlyStopping(schedule = self.early_stopping_schedule,
@@ -248,15 +338,18 @@ class NeuralNetModel(object):
         y_pred_train_np, y_train_np = resize_label_arrays(trainer.predict(self.x_train), self.y_train)
         print("Training accuracy {}".format(
             float(np.count_nonzero(y_pred_train_np == y_train_np)) / float(len(y_train_np))))
-
+        calculate_roc_score(y_train_np, y_pred_train_np, 'train')
         # Calculate testing accuracy
         y_pred_test_np, y_test_np = resize_label_arrays(trainer.predict(self.x_test), self.y_test)
         print(
             "Testing accuracy {}".format(float(np.count_nonzero(y_pred_test_np == y_test_np)) / float(len(y_test_np))))
+        calculate_roc_score(y_test_np, y_pred_test_np, 'test')
 
         plt.figure()
         plt.plot(self.epochs, self.lrs)
         plt.title('Learning rate over Epoches')
+        plt.xticks(np.arange(0.7, 0.6, step=0.1))
+
         plt.xlabel('Number of Epoch')
         plt.ylabel('Learning Rate')
         plt.show()
@@ -264,11 +357,13 @@ class NeuralNetModel(object):
         plt.plot(self.epochs, self.val_losses)
         plt.title('Loss over Epoches')
         plt.ylabel('Validation Loss')
+        plt.xticks(np.arange(0.7, 0.6, step=0.1))
+
         plt.xlabel('Number of Epoch')
         plt.show()
 
 
-#NN = NeuralNetModel("data_v12_short.txt", "label_v12_short.txt", 128, 0.5)
+# NN = NeuralNetModel("data_v12_short.txt", "label_v12_short.txt", 128, 0.5)
 
 """
  optimizer = optim.SGD(model.parameters(), lr=0.1, momentum=0.55)
@@ -334,4 +429,32 @@ Epoch 100/100: : 249 batches [00:00, 505.84 batches/s, val_loss=0.6334, val_acc=
 Training accuracy 0.6518228838148101
 Testing accuracy 0.6529801324503312
 batch size = 128 
- """
+
+
+When getting 0.2 of uncertainty: 
+with 0.1 uncertainty lr = 0.01, uncertainty: 0.7  lr = 0.003
+ optimizer = optim.SGD(model.parameters(), lr=0.007, momentum=0.8, nesterov=True)
+        criterion = torch.nn.CrossEntropyLoss()
+        callbacks = [torchsample.callbacks.ReduceLROnPlateau(schedule=self.early_stopping_schedule
+                                                             , monitor='val_loss',
+                                                             factor=0.8,
+                                                             patience=8,
+                                                             cooldown=1,
+                                                             epsilon=0.002,
+                                                             min_lr=1e-8,
+                                                             verbose=1)]
+
+When getting 0.1 of uncertainty: 
+
+model = Net(feature_size, 128, 2)
+optimizer = optim.SGD(model.parameters(), lr=0.02, momentum=0.8, nesterov=True)
+criterion = torch.nn.CrossEntropyLoss()
+callbacks = [torchsample.callbacks.ReduceLROnPlateau(schedule=self.early_stopping_schedule
+                                                     , monitor='val_loss',
+                                                     factor=0.8,
+                                                     patience=8,
+                                                     cooldown=5,
+                                                     epsilon=0.002,
+                                                     min_lr=1e-8,
+                                                     verbose=1),
+    """
