@@ -4,8 +4,9 @@ import pickle
 import sqlite3
 import statistics as s
 import time
+import sys
 from collections import Counter
-from collections import defaultdict,OrderedDict
+from collections import defaultdict, OrderedDict
 from itertools import islice
 from random import random
 import math
@@ -689,24 +690,23 @@ class Models(object):
     def train_decision_stump_model(self, dataset_name, labelset_name, number_of_features, development_mode,
                                    prediction_mode, historical_tournament, training_mode,
                                    test_given_model, save, tournament_pickle_file_name, court_type,
-                                   uncertainty_used, using_neural_net=False):
+                                   uncertainty_used, neural_net_model_name, using_neural_net=False):
         features = []
         labels = []
-        threshold = 0.1
+        fraction_of_matches = 0.4
+        print("The current uncertainty threshold is: {}".format(fraction_of_matches))
         if uncertainty_used:
             print("We are currenty working with data set {} and label set {}".format(dataset_name, labelset_name))
             pickle_in = open(dataset_name, "rb")
             features_uncertainty_dict = pickle.load(pickle_in)
-            print(len(features_uncertainty_dict))
 
             # sort the dictionary by the uncertainty of matches
             sorted_dict = {r: features_uncertainty_dict[r] for r in
                            sorted(features_uncertainty_dict, key=features_uncertainty_dict.get, reverse=False)}
 
-
-            threshold_uncertainty_key = list(sorted_dict)[int(math.floor(len(sorted_dict) * threshold))]
+            threshold_uncertainty_key = list(sorted_dict)[int(math.floor(len(sorted_dict) * fraction_of_matches))]
             threshold_uncertainty = features_uncertainty_dict[threshold_uncertainty_key]
-            print(threshold_uncertainty)
+            print("Our threshold uncertainty will be {}".format(threshold_uncertainty))
             # get the required percentage of least uncertain matches
             for k, uncertainty in features_uncertainty_dict.items():
                 if uncertainty < threshold_uncertainty:
@@ -715,9 +715,8 @@ class Models(object):
                     labels.append(np.asarray(features_and_labels[-1]))
 
             features = np.asarray(features)
-            print(len(features))
             labels = np.asarray(labels)
-            print(len(labels))
+
 
         else:
             print("We are currenty working with data set {} and label set {}".format(dataset_name, labelset_name))
@@ -781,10 +780,10 @@ class Models(object):
             p1_list = []
             p2_list = []
             results = []
+            prediction_threshold = 0.03
             if historical_tournament:
                 print("We are investigating {}.".format(tournament_pickle_file_name))
                 odds_file = loads_odds_into_a_list(tournament_pickle_file_name)
-                print(odds_file)
                 self.players.ID_P = self.players.ID_P.astype(int)
                 print("The initial number of games in this tournament with odds scraped is {}.".format(
                     len(odds_file)))
@@ -813,77 +812,24 @@ class Models(object):
 
                 print("The number of matches left after scraping the ID's of players is {}.".format(count))
 
-                # DONT FORGET: IF PLAYERS DO NOT HAVE COMMON OPPONENTS, YOU HAVE TO DELETE THAT ENTRY FROM THE SETS
-
-                features_from_prediction = np.asarray(
-                    [self.make_predictions_using_DT(p1, p2, court_type, 20000, number_of_features) for i, (p1, p2) in
-                     enumerate(zip(p1_list, p2_list))])
+                # Get the list of [match, calculated feature, calculated uncertainty] for each match
+                match_features_uncertainty_list = [
+                    self.make_predictions_using_DT(p1, p2, court_type, 20000, number_of_features) for i, (p1, p2) in
+                    enumerate(zip(p1_list, p2_list))]
                 print('When the features from prediction is first created, its size is {}'.format(
-                    len(features_from_prediction)))
+                    len(match_features_uncertainty_list)))
 
-                # THIS IS FOR WIMBLEDON 2018  """
+                for i, (match, feature, uncertainty) in enumerate(match_features_uncertainty_list):
+                    print(uncertainty)
+                    if uncertainty < prediction_threshold:
+                        del match_to_results_dictionary[match]
+                        del match_to_odds_dictionary[match]
+                    if np.array_equal(feature, np.zeros([number_of_features, ])):
+                        del match_to_results_dictionary[match]
+                        del match_to_odds_dictionary[match]
 
-                del match_to_results_dictionary[tuple([9839, 63016])]
-                #del match_to_results_dictionary[tuple([50386, 36519])]
-                del match_to_results_dictionary[tuple([10813, 63017])]
-                del match_to_results_dictionary[tuple([30856, 59356])]
-                #del match_to_results_dictionary[tuple([11003, 28586])]
-                
-
-                del match_to_odds_dictionary[tuple([9839, 63016])]
-               # del match_to_odds_dictionary[tuple([50386, 36519])]
-                del match_to_odds_dictionary[tuple([10813, 63017])]
-                del match_to_odds_dictionary[tuple([30856, 59356])]
-                #del match_to_odds_dictionary[tuple([11003, 28586])]
-
-
-                # THIS IS FOR US OPEN 2017
-                """
-                del match_to_results_dictionary[tuple([22056, 34511])]
-                del match_to_odds_dictionary[tuple([22056, 34511])]
-"""
-                """
-                #This is for qujing Challengers
-                del match_to_results_dictionary[tuple([17359, 35539])]
-                del match_to_results_dictionary[tuple([45197, 28296])]
-                del match_to_odds_dictionary[tuple([17359, 35539])]
-                del match_to_odds_dictionary[tuple([45197, 28296])]
-              
-                """
-                # THIS IS FOR US OPEN 2018
-                """
-                del match_to_results_dictionary[tuple([18495, 29171])]
-                del match_to_results_dictionary[tuple([14606, 34861])]
-                del match_to_results_dictionary[tuple([22428, 25919])]
-                del match_to_results_dictionary[tuple([28586, 26381])]
-
-                del match_to_results_dictionary[tuple([10901, 56846])]
-                del match_to_results_dictionary[tuple([56846, 38911])]
-                del match_to_results_dictionary[tuple([31392, 27082])]
-                del match_to_results_dictionary[tuple([27082, 38911])]
-
-                del match_to_results_dictionary[tuple([40609, 9831])]
-                del match_to_results_dictionary[tuple([38911, 1092])]
-
-                del match_to_odds_dictionary[tuple([18495, 29171])]
-                del match_to_odds_dictionary[tuple([14606, 34861])]
-                del match_to_odds_dictionary[tuple([22428, 25919])]
-                del match_to_odds_dictionary[tuple([28586, 26381])]
-
-                del match_to_odds_dictionary[tuple([10901, 56846])]
-                del match_to_odds_dictionary[tuple([56846, 38911])]
-                del match_to_odds_dictionary[tuple([31392, 27082])]
-                del match_to_odds_dictionary[tuple([27082, 38911])]
-
-                del match_to_odds_dictionary[tuple([40609, 9831])]
-                del match_to_odds_dictionary[tuple([38911, 1092])]
- """
-                """
-                # For ATP DOHA 2017
-                del match_to_results_dictionary[tuple([30470, 25708])]
-                
-                del match_to_odds_dictionary[tuple([30470, 25708])]
-                 """
+                features_from_prediction = np.asarray([element[1] for element in match_features_uncertainty_list if
+                                                       element[0] in list(match_to_results_dictionary.keys())])
 
             else:
 
@@ -921,12 +867,10 @@ class Models(object):
             features_from_prediction_final = preprocess_features_of_predictions(features_from_prediction,
                                                                                 standard_deviations)
 
-            print('When the features from prediction is final, its size is {}'.format(
-                len(features_from_prediction_final)))
             # Because we might have taken some results of the list
             final_results = np.asarray([result for match, result in match_to_results_dictionary.items()])
 
-            print("Number of features: {}".format(len(features_from_prediction_final)))
+            print("The Final Number of features: {}".format(len(features_from_prediction_final)))
             print("match_to_results_dictionary length: {}".format(len(match_to_results_dictionary)))
             print("Number of results: {}".format(len(final_results)))
             print("match_to_odds_dictionary length: {}".format(len(match_to_odds_dictionary)))
@@ -936,10 +880,11 @@ class Models(object):
                 match_to_odds_dictionary)
 
             if using_neural_net:
-                linear_clf = make_nn_predictions('ckpt.pth01.tar', tournament_pickle_file_name, x_scaled_no_duplicates,
+                linear_clf = make_nn_predictions(neural_net_model_name, tournament_pickle_file_name,
+                                                 x_scaled_no_duplicates,
                                                  y_no_duplicates,
                                                  features_from_prediction_final, final_results,
-                                                 match_to_results_dictionary, match_to_odds_dictionary)
+                                                 match_to_results_dictionary, match_to_odds_dictionary, self.players)
 
             else:
                 # WARNING: BLOWING UP THE FEATURE SPACE
@@ -1030,8 +975,9 @@ class Models(object):
             print("We are in training mode")
             print("Neural Net Model")
             NeuralNetModel(x_scaled_no_duplicates, y_no_duplicates.reshape(-1), batchsize=128, dev_set_size=0.4,
-                           threshold = str(threshold),text_file=False)
+                           threshold=str(fraction_of_matches), text_file=False)
 
+            sys.exit()
             # Bagged_Decision_Trees(5, x_scaled_no_duplicates, y_no_duplicates, 10)
 
             linear_clf = sklearn.tree.DecisionTreeClassifier(max_depth=4)
@@ -1392,7 +1338,6 @@ class Models(object):
 
         current_year = 2018
         time_discount_factor = 0.8
-        feature_uncertainty_dict = OrderedDict()
 
         # All games that two players have played
         player1_games = self.dataset.loc[np.logical_or(self.dataset.ID1 == player1_id, self.dataset.ID2 == player1_id)]
@@ -1484,17 +1429,23 @@ class Models(object):
 
             if bp_1 == 1 or bp_1 == 0 or bp_2 == 0 or bp_2 == 1:
                 print("After averaging breaking point conversion was 0 or 1.")
-                return np.zeros([number_of_features, ])  # you have to change this number as you keep adding features!
+
+                # Element 1 = player ids
+                # Element 2 = calculated feature
+                # Element 3 = overall uncertainty
+                return [tuple([player1_id, player2_id]), np.zeros([number_of_features, ]), overall_uncertainty]
+
+
             else:
 
                 feature = np.array(
                     [serveadv_1 - serveadv_2, complete_1 - complete_2, w1sp_1 - w1sp_2, aces_1 - aces_2,
                      bp_1 - bp_2, tpw1 - tpw2, h2h_1 - h2h_2])
-                return feature
+                return [tuple([player1_id, player2_id]), feature, overall_uncertainty]
         else:
             print("The players {} and {} do not have enough common opponents to make predictions.".format(player1_id,
                                                                                                           player2_id))
-            return np.zeros([number_of_features, ])
+            return [tuple([player1_id, player2_id]), np.zeros([number_of_features, ]), 10000]
 
 
 DT = Models("updated_stats_v3")  # Initalize the model class with our sqlite3 advanced stats database
@@ -1515,8 +1466,9 @@ DT.train_decision_stump_model('uncertainty_dict_v14.txt', 'label_v12_short.txt',
                               save=False,
                               training_mode=False,
                               test_given_model=False,
-                              tournament_pickle_file_name='wimbledon_2018_odds_v2.pkl',
-                              court_type=5, uncertainty_used=True, using_neural_net=True)
+                              tournament_pickle_file_name='us_open_2018_odds.pkl',
+                              court_type=1, uncertainty_used=True, neural_net_model_name='ckpt.pth04adam05.tar',
+                              using_neural_net=True)
 
 # WIMBLEDON 2018
 """

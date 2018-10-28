@@ -55,14 +55,16 @@ class Net(torch.nn.Module):
 
         self.fc1 = torch.nn.Linear(input_size,
                                    hidden_size)  # 1st Full-Connected Layer: 3072 (input data) -> 1024 (hidden node)
-
+        #  self.fc2 = torch.nn.Linear(hidden_size,
+        #                         64)  # 1st Full-Connected Layer: 3072 (input data) -> 1024 (hidden node)
         self.fc2 = torch.nn.Linear(hidden_size,
                                    num_classes)  # 2nd Full-Connected Layer: 1023 (hidden node) -> 10 (output class)
 
     def forward(self, x):
-        # F.rrelu
         out = F.rrelu(self.fc1(x))  # followed by sigmoid activation function
-        out = F.rrelu(self.fc2(out))
+        out = F.rrelu(self.fc2(out))  # followed by sigmoid activation function
+
+        #  out = F.rrelu(self.fc3(out))
 
         return out
 
@@ -172,7 +174,7 @@ def calculate_roc_score(y, y_pred, train):
 
 def make_nn_predictions(filename, tournament_pickle_file_name, x_scaled_no_duplicates, y_no_duplicates,
                         features_from_prediction_final, final_results,
-                        match_to_results_dictionary, match_to_odds_dictionary):
+                        match_to_results_dictionary, match_to_odds_dictionary, players):
     bet_amount = 10
     total_winnings = 0
     count = 0
@@ -213,29 +215,27 @@ def make_nn_predictions(filename, tournament_pickle_file_name, x_scaled_no_dupli
         predictions_dict[tuple(match)] = [prediction, result, np.asarray(prediction_probability),
                                           odds,
                                           odds[abs(int(prediction) - 1)]]
-        # print(predictions)
-        print("Prediction for match {} was {}. The result was {}. The prediction probability is {}."
-              "The odds were {}.The odds we chose to bet was {}".format(match, prediction, result,
-                                                                        prediction_probability
-                                                                        , odds,
-                                                                        odds[abs(int(prediction) - 1)]))
-        if max_probability > 0.6:
-            print("Max probability is {}".format(max_probability))
-            if float(odds[abs(int(prediction) - 1)]) > 1.3:
-                print("The odds we selected was {}".format(odds[abs(int(prediction) - 1)]))
+        print(max_probability)
+        if result == prediction:
 
-                if result == prediction:
-
-                    if abs(float(odds[abs(int(prediction) - 1)])) < 20:
-                        correct = correct + 1
-                        count = count + 1
-                        total_winnings = total_winnings + (
-                                bet_amount * float(odds[abs(int(prediction) - 1)]))
-                else:
-                    count = count + 1
-                    total_winnings = total_winnings - bet_amount
+            if abs(float(odds[abs(int(prediction) - 1)])) < 20:
+                correct = correct + 1
+                count = count + 1
+                total_winnings = total_winnings + (
+                        bet_amount * float(odds[abs(int(prediction) - 1)]))
+        else:
+            count = count + 1
+            total_winnings = total_winnings - bet_amount
 
         print("Our total winnings so far is {}".format(total_winnings))
+        player1 = players[players['ID_P'] == list(match)[0]].iloc[0]['NAME_P']
+        player2 = players[players['ID_P'] == list(match)[1]].iloc[0]['NAME_P']
+        print("Prediction for match {} - {} was {}. The result was {}. The prediction probability is {}."
+              'Converting our implied probability into decimal odds, we calculate the odd for favorite as {}'
+              "The odds were {}.The odds we chose to bet was {}".format(player1, player2, prediction, result,
+                                                                        prediction_probability,
+                                                                        float(100 / max_probability /100)
+                                                                        , odds, odds[abs(int(prediction) - 1)]))
 
     print("Total amount of bets we made is: {}".format(bet_amount * count))
     print("Total Winnings: {}".format(total_winnings))
@@ -298,8 +298,31 @@ class NeuralNetModel(object):
         model = Net(feature_size, 128, 2)
         # lr=0.1, momentum=0.55
         optimizer = optim.SGD(model.parameters(), lr=0.02, momentum=0.8, nesterov=True)
+
+        # optimizer = optim.Adam(model.parameters(), lr=0.00005) # good alternative for threshold = 0.1
+        # optimizer = optim.Adam(model.parameters(), lr=0.00015) # better alternative for threshold = 0.15
+        #optimizer = optim.Adagrad(model.parameters(), lr=0.0025)  # better alternative for threshold = 0.15
+        # optimizer = optim.Adagrad(model.parameters(), lr=0.007)  # better alternative for threshold = 0.1
+        #optimizer = optim.Adagrad(model.parameters(), lr=0.003)  # better alternative for threshold = 0.4 and batchsize = 128
+        #optimizer = optim.Adam(model.parameters(), lr=0.00005) # better alternative for threshold = 0.4 and batchsize = 128
+
         criterion = torch.nn.CrossEntropyLoss()
-        callbacks = [torchsample.callbacks.ReduceLROnPlateau(schedule=self.early_stopping_schedule
+
+        callbacks = [  # torchsample.callbacks.CyclicLR(step_size=500,base_lr = 0.001,max_lr = 0.01),
+            torchsample.callbacks.EarlyStopping(schedule=self.early_stopping_schedule,
+                                                monitor='val_loss',  # monitor loss
+                                                min_delta=1e-5,
+                                                patience=80),
+            torchsample.callbacks.ModelCheckpoint(directory='~aysekozlu/PyCharmProjects/TennisModel',
+                                                  monitor='val_loss', save_best_only=True, verbose=1)]
+        # torchsample.callbacks.CyclicLR(self.early_stopping_schedule)]
+        """
+        
+        torchsample.callbacks.EarlyStopping(schedule = self.early_stopping_schedule,
+                                                         monitor='val_loss',  # monitor loss
+                                                         min_delta=1e-5,
+                                                         patience=80),
+        [torchsample.callbacks.ReduceLROnPlateau(schedule=self.early_stopping_schedule
                                                              , monitor='val_loss',
                                                              factor=0.8,
                                                              patience=8,
@@ -307,15 +330,13 @@ class NeuralNetModel(object):
                                                              epsilon=0.002,
                                                              min_lr=1e-8,
                                                              verbose=1),
-                     torchsample.callbacks.ModelCheckpoint(directory='~aysekozlu/PyCharmProjects/TennisModel',
+        torchsample.callbacks.ModelCheckpoint(directory='~aysekozlu/PyCharmProjects/TennisModel',
                                                            monitor='val_loss', save_best_only=True, verbose=1)]
-        """
         torchsample.callbacks.LRScheduler(self.lr_schedule),
         [torchsample.callbacks.EarlyStopping(schedule = self.early_stopping_schedule,
                                                          monitor='val_loss',  # monitor loss
                                                          min_delta=1e-5,
                                                          patience=10)"""
-        # torchsample.callbacks.CyclicLR(self.clr_record)]
 
         metrics = [Binary_Classification()]  # Keep track of validation and training accuracy each epoch
         trainer = torchsample.modules.ModuleTrainer(model)
@@ -325,7 +346,7 @@ class NeuralNetModel(object):
                         optimizer=optimizer,
                         metrics=metrics)
         trainer.set_callbacks(callbacks)
-
+        print(batch_size)
         trainer.fit(self.x_train, self.y_train,
                     val_data=(self.x_val, self.y_val),
                     num_epoch=200,
@@ -352,7 +373,7 @@ class NeuralNetModel(object):
 
         plt.xlabel('Number of Epoch')
         plt.ylabel('Learning Rate')
-        plt.show()
+
         plt.figure()
         plt.plot(self.epochs, self.val_losses)
         plt.title('Loss over Epoches')
@@ -432,7 +453,6 @@ batch size = 128
 
 
 When getting 0.2 of uncertainty: 
-with 0.1 uncertainty lr = 0.01, uncertainty: 0.7  lr = 0.003
  optimizer = optim.SGD(model.parameters(), lr=0.007, momentum=0.8, nesterov=True)
         criterion = torch.nn.CrossEntropyLoss()
         callbacks = [torchsample.callbacks.ReduceLROnPlateau(schedule=self.early_stopping_schedule
@@ -445,7 +465,7 @@ with 0.1 uncertainty lr = 0.01, uncertainty: 0.7  lr = 0.003
                                                              verbose=1)]
 
 When getting 0.1 of uncertainty: 
-
+same true when another fc3 added of size 64
 model = Net(feature_size, 128, 2)
 optimizer = optim.SGD(model.parameters(), lr=0.02, momentum=0.8, nesterov=True)
 criterion = torch.nn.CrossEntropyLoss()
