@@ -650,7 +650,7 @@ class Models(object):
                         y.append(label)
 
                 else:
-                    # Player 1 has won. We switch Player 2 and Player 1 positions and label it 0 (Player 1 win, player 2 loss).
+                    # Player 2 has won. We switch Player 2 and Player 1 positions and label it 0 (Player 2 win, player 1 loss).
                     # This is necessary because our dataset has a specific format where first player always wins.
 
                     feature = np.array(
@@ -659,7 +659,7 @@ class Models(object):
                         #  bp_2 - bp_1, tpw2 - tpw1, h2h_2 - h2h_1])
                         [serveadv_2 - serveadv_1, complete_2 - complete_1, w1sp_2 - w1sp_1, aces_2 - aces_1,
                          bp_2 - bp_1, tpw2 - tpw1, h2h_2 - h2h_1])
-                    label = 0
+                    label = 2
 
                     if np.any(np.isnan(feature)):
                         continue
@@ -780,7 +780,7 @@ class Models(object):
             p1_list = []
             p2_list = []
             results = []
-            prediction_threshold = 0.03
+            prediction_threshold = 0.01
             if historical_tournament:
                 print("We are investigating {}.".format(tournament_pickle_file_name))
                 odds_file = loads_odds_into_a_list(tournament_pickle_file_name)
@@ -1466,8 +1466,8 @@ DT.train_decision_stump_model('uncertainty_dict_v14.txt', 'label_v12_short.txt',
                               save=False,
                               training_mode=False,
                               test_given_model=False,
-                              tournament_pickle_file_name='us_open_2018_odds.pkl',
-                              court_type=1, uncertainty_used=True, neural_net_model_name='ckpt.pth04adam05.tar',
+                              tournament_pickle_file_name='wimbledon_2018_odds_v2.pkl',
+                              court_type=5, uncertainty_used=True, neural_net_model_name='ckpt.pth04adam05.tar',
                               using_neural_net=True)
 
 # WIMBLEDON 2018
