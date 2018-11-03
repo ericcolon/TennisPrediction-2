@@ -80,3 +80,44 @@ for instance_id, instance in ec2info.items():
                     odds = match_to_odds_dictionary[tuple([p1, p2])]
 
                     match_to_odds_dictionary[tuple([p2, p1])] = list(reversed(odds))"""
+
+
+"""
+
+
+def test_final_results(result_file, odds_file, length_of_guesses):
+    with open(result_file, 'rb') as handle:
+        dict_of_results = pickle.load(handle)
+
+    with open(odds_file, 'rb') as handle:
+        odds = pickle.load(handle)
+
+    print(dict_of_results)
+    print(odds)
+    count = 0
+    correct = 0
+    for match, res in dict_of_results.items():
+
+        if len(res) > length_of_guesses:
+            most_common_result = most_common(res)
+            print(res)
+            print(res.count(most_common_result) / len(res))
+            if (res.count(most_common_result) / len(res)) < 0.70:
+                continue
+            else:
+                if match not in odds:
+                    continue
+                else:
+                    count = count + 1
+                    odd = odds[match]
+
+                    print(
+                        "Prediction for match {} was {}. The result was {}. The odds were {}.The odds we chose to bet was {}"
+                            .format(match, most_common_result, odd[1], odd[3],
+                                    odd[3][abs(int(most_common_result) - 1)]))
+                    if most_common_result == odd[1]:
+                        correct = correct + 1
+    print(correct)
+    print(count)
+    print(correct / count)
+"""

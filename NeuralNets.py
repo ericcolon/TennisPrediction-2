@@ -171,6 +171,7 @@ def calculate_roc_score(y, y_pred, train):
     false_positive_rate, true_positive_rate, thresholds = sklearn.metrics.roc_curve(y, y_pred)
     roc_auc = sklearn.metrics.auc(false_positive_rate, true_positive_rate)
     print("ROC SCORE for " + train + " is : {}".format(roc_auc))
+    return "ROC SCORE for " + train + " is : {}".format(roc_auc)
 
 
 def make_nn_predictions(filename, tournament_pickle_file_name, x_scaled_no_duplicates, y_no_duplicates,
@@ -180,7 +181,7 @@ def make_nn_predictions(filename, tournament_pickle_file_name, x_scaled_no_dupli
     total_winnings = 0
     count = 0
     correct = 0
-    tournament_name = "wimbledon_2018_results.txt\n"
+    tournament_name = "us_open_2018_model_results.txt\n"
     f = open(tournament_name, "w+")
     match_to_results_list = list(match_to_results_dictionary.items())  # get list of matches
 
@@ -271,7 +272,7 @@ def make_nn_predictions(filename, tournament_pickle_file_name, x_scaled_no_dupli
 
         print(bookmaker_probabilities)
 
-        odds_chosen = "The odds we chose to bet was {}".format(odds[abs(int(prediction) - 1)])
+        odds_chosen = "The odds we chose to bet was {}\n".format(odds[abs(int(prediction) - 1)])
 
         print(odds_chosen)
         # Write the results to a text file
@@ -282,11 +283,11 @@ def make_nn_predictions(filename, tournament_pickle_file_name, x_scaled_no_dupli
         f.write(bookmaker_probabilities + "\n")
         f.write(odds_chosen + "\n")
 
-    f.write("Total amount of bets we made is: {}".format(bet_amount * count))
-    f.write("Total Winnings: {}".format(total_winnings))
+    f.write("Total amount of bets we made is: {}\n".format(bet_amount * count))
+    f.write("Total Winnings: {}\n".format(total_winnings))
     ROI = (total_winnings - (bet_amount * count)) / (bet_amount * count) * 100
-    f.write("Our ROI for {} was: {}.".format(tournament_pickle_file_name, ROI))
-    f.write("Accuracy over max probability and with odd threshold is {}.".format(correct / count))
+    f.write("Our ROI for {} was: {}.\n".format(tournament_pickle_file_name, ROI))
+    f.write("Accuracy over max probability and with odd threshold is {}.\n".format(correct / count))
 
     # Convert text file to pdf
 

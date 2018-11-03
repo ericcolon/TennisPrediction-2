@@ -11,26 +11,25 @@ from random import random
 import math
 import numpy as np
 import matplotlib.pyplot as plt
-import boto3  # For Amazon EC2 Instance
-from NeuralNets import make_nn_predictions, NeuralNetModel
+# import boto3  # For Amazon EC2 Instance
 import feather  # For R-Data conversion
 import pandas as pd
 from matplotlib.legend_handler import HandlerLine2D
 # Sklearn imports
 import sklearn
 from sklearn import preprocessing, tree
-from sklearn.ensemble import RandomForestClassifier, BaggingClassifier
+from sklearn.ensemble import BaggingClassifier
 from sklearn.neighbors import KNeighborsClassifier
-from sklearn.ensemble import GradientBoostingClassifier, ExtraTreesClassifier  # For Classification
+from sklearn.ensemble import ExtraTreesClassifier  # For Classification
 from sklearn.externals import joblib
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import roc_curve, auc, roc_auc_score, accuracy_score
+from sklearn.metrics import roc_curve, auc
 from sklearn.model_selection import StratifiedKFold, KFold
 from sklearn.model_selection import train_test_split, cross_val_score
 from sqlalchemy import create_engine
 
 # Other Classes
-from OddsScraper import loads_odds_into_a_list
+from NeuralNets import make_nn_predictions, NeuralNetModel
 
 
 # Data viz
@@ -42,8 +41,45 @@ from OddsScraper import loads_odds_into_a_list
 
 # Ensemble
 # from mlens.ensemble import SuperLearner
-def split_database_by_set_size(database):
-    pass
+
+
+def create_database_based_on_set(database_name, match_type, new_db_name):
+    conn = sqlite3.connect(database_name + '.db')
+
+    # The name on this table should be the same as the dataframe
+    dataset = pd.read_sql_query('SELECT * FROM updated_stats_v5', conn)
+
+    # This changes all values to numeric if sqlite3 conversion gave a string
+    dataset = dataset.apply(pd.to_numeric, errors='coerce')
+
+    # Print statements to visually test some values
+    dataset.dropna(subset=['SERVEADV1'], inplace=True)  # drop invalid stats (22)
+    dataset.dropna(subset=['court_type'], inplace=True)  # drop invalid stats (616)
+    dataset.dropna(subset=['H21H'], inplace=True)  # drop invalid stats (7)
+    dataset.dropna(subset=['Number_of_games'], inplace=True)  # drop invalid stats (7)
+    dataset.dropna(subset=['Game_Spread'], inplace=True)  # drop invalid stats (7)
+
+    # Reset indexes after dropping N/A values
+    dataset = dataset.reset_index(drop=True)  # reset indexes if any more rows are dropped
+    dataset['year'].fillna(2018, inplace=True)
+    dataset = dataset.reset_index(drop=True)  # reset indexes if any more rows are dropped
+
+    for i in dataset.index:
+        print("We are at index {}".format(i))
+        current_year = float(dataset.at[i, 'year'])
+        if current_year == "":
+            dataset.at[i, 'year'] = float(2018)
+
+    # Drop 3 set matches or 5 set amtches based on match_type argument
+    if match_type == 3:
+        dataset = dataset.loc[dataset['2_set_wins_tournament'] == 1]
+    else:
+        dataset = dataset.loc[dataset['2_set_wins_tournament'] == 0]
+
+    dataset = dataset.reset_index(drop=True)  # reset indexes if any more rows are dropped
+
+    # Convert it into sqlite 3 database
+    df2sqlite_v2(dataset, new_db_name)
 
 
 def convert_dataframe_into_rdata(df, name):
@@ -51,46 +87,20 @@ def convert_dataframe_into_rdata(df, name):
     feather.write_dataframe(df, path)
 
 
-def test_final_results(result_file, odds_file, length_of_guesses):
-    with open(result_file, 'rb') as handle:
-        dict_of_results = pickle.load(handle)
-
-    with open(odds_file, 'rb') as handle:
-        odds = pickle.load(handle)
-
-    print(dict_of_results)
-    print(odds)
-    count = 0
-    correct = 0
-    for match, res in dict_of_results.items():
-
-        if (len(res) > length_of_guesses):
-            most_common_result = Most_Common(res)
-            print(res)
-            print(res.count(most_common_result) / len(res))
-            if (res.count(most_common_result) / len(res)) < 0.70:
-                continue
-            else:
-                if match not in odds:
-                    continue
-                else:
-                    count = count + 1
-                    odd = odds[match]
-
-                    print(
-                        "Prediction for match {} was {}. The result was {}. The odds were {}.The odds we chose to bet was {}"
-                            .format(match, most_common_result, odd[1], odd[3],
-                                    odd[3][abs(int(most_common_result) - 1)]))
-                    if most_common_result == odd[1]:
-                        correct = correct + 1
-    print(correct)
-    print(count)
-    print(correct / count)
-
-
-def Most_Common(lst):
+def most_common(lst):
     data = Counter(lst)
     return data.most_common(1)[0][0]
+
+
+# Function to loads info from file to a list
+def loads_odds_into_a_list(odds_file):
+    with open(odds_file, 'rb') as f:
+        data = pickle.load(f)
+
+    updated_data = [d for d in data if 'bwin' in d]
+    # for d in updated_data:
+    # print(d)
+    return updated_data
 
 
 # Helper function to get snapshot of basic and advanced sqlite3 databases
@@ -124,8 +134,8 @@ def df2sqlite(dataframe, db_name="import.sqlite", tbl_name="import"):
 
 def df2sqlite_v2(dataframe, db_name):
     disk_engine = create_engine('sqlite:///' + db_name + '.db')
-    dataframe.to_sql(db_name, disk_engine, if_exists='append')
-    # dataframe.to_sql(db_name, disk_engine, if_exists='replace', chunksize=1000)
+    # dataframe.to_sql(db_name, disk_engine, if_exists='append')
+    dataframe.to_sql(db_name, disk_engine, if_exists='replace', chunksize=1000)
 
     """Bundan onceki !!!! Bunu unutma updated_stats V3 icin bunu yapmak daha dogru olabilir. Dont know the difference
     #     dataframe.to_sql(db_name, disk_engine ,if_exists='append')"""
@@ -417,10 +427,6 @@ def resize_prediction_arrays(y_pred_torch, y):
 
 class Models(object):
 
-    # TODO try gradient boosted regression trees. link: https://www.youtube.com/watch?v=IXZKgIsZRm0&t=892s
-    # TODO XGBOOST, multi layered neural network - trying to do AdaBoost gradient as well
-    # TODO : Hyperparameter tuning of DT's, taking off h2h, creating feature set again, adding time discount factor,
-    # TODO Increasing number of common opponents in the past. Getting some probability for predictions.
     def __init__(self, database_name):
 
         # Create a new pandas dataframe from the sqlite3 database we created
@@ -444,7 +450,7 @@ class Models(object):
         dataset = dataset.reset_index(drop=True)  # reset indexes if any more rows are dropped
         self.dataset = dataset
         # print(self.dataset.isna().sum())
-        for i in (self.dataset.index):
+        for i in self.dataset.index:
             current_year = float(self.dataset.at[i, 'year'])
             if current_year == "":
                 self.dataset.at[i, 'year'] = float(2018)
@@ -536,6 +542,8 @@ class Models(object):
             if current_year == "":
                 current_year = float(2018)
             time_discount_factor = 0.8
+
+            total_number_of_games = self.dataset.at[i, "Number_of_games"]
             # Games played earlier than the current tournament we are investigating
             earlier_games_of_p1 = [game for game in player1_games.itertuples() if game.ID_T < curr_tournament]
 
@@ -593,23 +601,15 @@ class Models(object):
                             #   print("Surface matrix weight {}".format(court_dict[current_court_id][game.court_type]))
                             #  print("Time Discount {}".format(
                             #    calculate_time_discount(time_discount_factor, current_year, game.year)))
-                            weights_of_p1[opponent].append(court_dict[current_court_id][
-                                                               game.court_type] * calculate_time_discount(
-                                time_discount_factor, current_year, game.year))
+                            weights_of_p1[opponent].append(
+                                court_dict[current_court_id][game.court_type] * calculate_time_discount(
+                                    time_discount_factor, current_year, game.year))
                 for opponent in common_opponents:
                     for game in player2_games_updated:
                         if opponent == game.ID2 or opponent == game.ID1:
-                            #   print("Current Opponent {}".format(opponent))
-                            #   print("Current Court Id {}".format(current_court_id))
-                            #   print("Court Id of the game Id {}".format(game.court_type))
-                            #   print("Current Year {}".format(current_year))
-                            #   print("Game Year {}".format(game.year))
-                            #   print("Surface matrix weight {}".format(court_dict[current_court_id][game.court_type]))
-                            #  print("Time Discount {}".format(
-                            #    calculate_time_discount(time_discount_factor, current_year, game.year)))
-                            weights_of_p2[opponent].append(court_dict[current_court_id][
-                                                               game.court_type] * calculate_time_discount(
-                                time_discount_factor, current_year, game.year))
+                            weights_of_p2[opponent].append(court_dict[current_court_id][game.court_type]
+                                                           * calculate_time_discount(time_discount_factor, current_year,
+                                                                                     game.year))
                 sum_of_weights = 0
                 for key in weights_of_p1.keys() & weights_of_p2.keys():
                     # print(key, weights_of_p1[key], weights_of_p2[key])
@@ -1455,9 +1455,11 @@ DT = Models("updated_stats_v3")  # Initalize the model class with our sqlite3 ad
 # print(len(data_label[0]))
 # print(len(data_label[1]))
 
+# To create new database based on best of 2 vs best of 3 tournaments.
+# create_database_based_on_set("updated_stats_v5", 5, "updated_stats_v5_5set_matches")
 # To train and make predictions on Decision Stump Model
 # US OPEN 2018-17
-
+"""
 DT.train_decision_stump_model('uncertainty_dict_v14.txt', 'label_v12_short.txt',
                               number_of_features=7,
                               development_mode=False,
@@ -1465,9 +1467,11 @@ DT.train_decision_stump_model('uncertainty_dict_v14.txt', 'label_v12_short.txt',
                               save=False,
                               training_mode=False,
                               test_given_model=False,
-                              tournament_pickle_file_name='wimbledon_2018_odds_v2.pkl',
-                              court_type=5, uncertainty_used=True, neural_net_model_name='ckpt.pth04adam05.tar',
+                              tournament_pickle_file_name='us_open_2018_odds.pkl',
+                              court_type=1, uncertainty_used=True, neural_net_model_name='ckpt.pth04adam05.tar',
                               using_neural_net=True)
+
+"""
 
 # WIMBLEDON 2018
 """
