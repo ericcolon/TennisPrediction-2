@@ -7,7 +7,6 @@ import time
 import sys
 from collections import Counter
 from collections import defaultdict, OrderedDict
-from itertools import islice
 from random import random
 import math
 import numpy as np
@@ -15,9 +14,7 @@ import matplotlib.pyplot as plt
 import boto3  # For Amazon EC2 Instance
 from NeuralNets import make_nn_predictions, NeuralNetModel
 import feather  # For R-Data conversion
-import torch as th
 import pandas as pd
-from torch.autograd import Variable
 from matplotlib.legend_handler import HandlerLine2D
 # Sklearn imports
 import sklearn
@@ -34,11 +31,6 @@ from sqlalchemy import create_engine
 
 # Other Classes
 from OddsScraper import loads_odds_into_a_list
-# from NeuralNets import *
-# Inputs
-from sklearn.linear_model import Lasso, ElasticNet
-from sklearn.ensemble import RandomForestRegressor
-from sklearn.preprocessing import StandardScaler
 
 
 # Data viz
@@ -50,6 +42,8 @@ from sklearn.preprocessing import StandardScaler
 
 # Ensemble
 # from mlens.ensemble import SuperLearner
+def split_database_by_set_size(database):
+    pass
 
 
 def convert_dataframe_into_rdata(df, name):
@@ -777,10 +771,11 @@ class Models(object):
             print('We are in prediction mode.')
             match_to_odds_dictionary = collections.OrderedDict()
             match_to_results_dictionary = collections.OrderedDict()
+            match_uncertainty_dict = collections.OrderedDict()
             p1_list = []
             p2_list = []
             results = []
-            prediction_threshold = 0.01
+            prediction_threshold = 90
             if historical_tournament:
                 print("We are investigating {}.".format(tournament_pickle_file_name))
                 odds_file = loads_odds_into_a_list(tournament_pickle_file_name)
@@ -820,13 +815,16 @@ class Models(object):
                     len(match_features_uncertainty_list)))
 
                 for i, (match, feature, uncertainty) in enumerate(match_features_uncertainty_list):
-                    print(uncertainty)
-                    if uncertainty < prediction_threshold:
+                    if uncertainty > prediction_threshold:
                         del match_to_results_dictionary[match]
                         del match_to_odds_dictionary[match]
-                    if np.array_equal(feature, np.zeros([number_of_features, ])):
+                    elif np.array_equal(feature, np.zeros([number_of_features, ])):
                         del match_to_results_dictionary[match]
                         del match_to_odds_dictionary[match]
+                    else:
+                        match_uncertainty_dict[match] = uncertainty
+                print("Ater uncertainty threshold, remaining number of matches is {}".format(
+                    len(match_to_results_dictionary)))
 
                 features_from_prediction = np.asarray([element[1] for element in match_features_uncertainty_list if
                                                        element[0] in list(match_to_results_dictionary.keys())])
@@ -874,17 +872,18 @@ class Models(object):
             print("match_to_results_dictionary length: {}".format(len(match_to_results_dictionary)))
             print("Number of results: {}".format(len(final_results)))
             print("match_to_odds_dictionary length: {}".format(len(match_to_odds_dictionary)))
+            print("match_uncertainty_dict length: {}".format(len(match_uncertainty_dict)))
 
             # Sanity check
             assert len(features_from_prediction_final) == len(match_to_results_dictionary) == len(final_results) == len(
-                match_to_odds_dictionary)
+                match_to_odds_dictionary) == len(match_uncertainty_dict)
 
             if using_neural_net:
                 linear_clf = make_nn_predictions(neural_net_model_name, tournament_pickle_file_name,
-                                                 x_scaled_no_duplicates,
-                                                 y_no_duplicates,
+                                                 x_scaled_no_duplicates, y_no_duplicates,
                                                  features_from_prediction_final, final_results,
-                                                 match_to_results_dictionary, match_to_odds_dictionary, self.players)
+                                                 match_to_results_dictionary, match_to_odds_dictionary, self.players,
+                                                 match_uncertainty_dict)
 
             else:
                 # WARNING: BLOWING UP THE FEATURE SPACE

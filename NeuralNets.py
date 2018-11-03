@@ -13,6 +13,7 @@ import torchsample.callbacks
 import torchsample.metrics
 import math
 from torch.autograd import Variable
+import pdfkit
 
 
 # I Overwrite this class from torchsample. The one at torch sample does not work for multi class outputs.
@@ -174,12 +175,13 @@ def calculate_roc_score(y, y_pred, train):
 
 def make_nn_predictions(filename, tournament_pickle_file_name, x_scaled_no_duplicates, y_no_duplicates,
                         features_from_prediction_final, final_results,
-                        match_to_results_dictionary, match_to_odds_dictionary, players):
+                        match_to_results_dictionary, match_to_odds_dictionary, players, match_uncertainty_dict):
     bet_amount = 10
     total_winnings = 0
     count = 0
     correct = 0
-
+    tournament_name = "wimbledon_2018_results.txt\n"
+    f = open(tournament_name, "w+")
     match_to_results_list = list(match_to_results_dictionary.items())  # get list of matches
 
     linear_clf = Net(7, 128, 2)
@@ -187,12 +189,17 @@ def make_nn_predictions(filename, tournament_pickle_file_name, x_scaled_no_dupli
 
     y_pred, y_test = resize_prediction_arrays(
         linear_clf(Variable(torch.from_numpy(x_scaled_no_duplicates).float())), y_no_duplicates)
-    print("Training accuracy {}".format(float(np.count_nonzero(y_pred == y_test)) / float(len(y_test))))
+    print("Training accuracy {}\n".format(float(np.count_nonzero(y_pred == y_test)) / float(len(y_test))))
     calculate_roc_score(y_test, y_pred, 'train')
+
+    f.write(tournament_name)
+    f.write("Training accuracy {}\n".format(float(np.count_nonzero(y_pred == y_test)) / float(len(y_test))))
 
     y_pred, y_test = resize_prediction_arrays(
         linear_clf(Variable(torch.from_numpy(features_from_prediction_final).float())), final_results)
     print("Prediction accuracy {}".format(float(np.count_nonzero(y_pred == y_test)) / float(len(y_test))))
+    f.write("Prediction accuracy {}\n".format(float(np.count_nonzero(y_pred == y_test)) / float(len(y_test))))
+
     calculate_roc_score(y_test, y_pred, 'test')
 
     for i, (feature, result) in enumerate(zip(features_from_prediction_final, final_results)):
@@ -214,6 +221,7 @@ def make_nn_predictions(filename, tournament_pickle_file_name, x_scaled_no_dupli
 
         match = match_to_results_list[i][0]  # can do this because everything is ordered
         odds = match_to_odds_dictionary[tuple(match)]
+        uncertainty = match_uncertainty_dict[tuple(match)]
         total_bookmaker_prob = (1 / float(odds[0])) + (1 / float(odds[1]))
         bias = abs(1 - total_bookmaker_prob) / 2
 
@@ -233,18 +241,55 @@ def make_nn_predictions(filename, tournament_pickle_file_name, x_scaled_no_dupli
         # print("Our total winnings so far is {}".format(total_winnings))
         player1 = players[players['ID_P'] == list(match)[0]].iloc[0]['NAME_P']
         player2 = players[players['ID_P'] == list(match)[1]].iloc[0]['NAME_P']
-        analysis = "Prediction for match {} - {} was {}. The result was {}. Our prediction probabilities are {}:{} and {}:{}." \
-                   "Converting our implied probability into decimal odds, the odds we calculate are [{:.2f} , {:.2f}]. ".format(
-            player1, player2, prediction, result,player1, prediction_probability[0],player2,prediction_probability[1], calculated_odds_of_p1, calculated_odds_of_p2)
-        print(analysis)
-        bookmaker_analysis = "The actual odds were {}.Converting these odds to bookmaker probabilities we get {} and {}. The odds we chose to bet was {}".format(
-            odds, (1 / (float(odds[0])) - bias), (1 / (float(odds[1])) - bias), odds[abs(int(prediction) - 1)])
-        print(bookmaker_analysis)
-    print("Total amount of bets we made is: {}".format(bet_amount * count))
-    print("Total Winnings: {}".format(total_winnings))
+        f.write("MATCH NUMBER {}. Uncertainty: {}\n".format(i, uncertainty))
+        if (uncertainty < 0.2):
+            f.write("This uncertainty means the quality of match features is GOOD.\n".format(i, uncertainty))
+        else:
+            f.write("This uncertainty means the quality of match features is NOT GOOD.\n".format(i, uncertainty))
+
+        match_analysis = "Prediction for match {} - {} was {}. The result was {}.".format(
+            player1, player2, prediction, result)
+        our_probabilities = "The calculated model probabilities: \n{} : {:.2f} and {} : {:.2f}.".format(player1,
+                                                                                                        prediction_probability[
+                                                                                                            0],
+                                                                                                        player2,
+                                                                                                        prediction_probability[
+                                                                                                            1])
+        our_decimal_odds = "Converting our implied probability into decimal odds, model calculates odds as: \n{} :" \
+                           " {:.2f} and {} : {:.2f}. ".format(player1, calculated_odds_of_p1, player2,
+                                                              calculated_odds_of_p2)
+        print(match_analysis)
+        print(our_probabilities)
+        print(our_decimal_odds)
+        bookmaker_odds = "The bookmakers (actual) odds were: \n{} : {} and {} : {}".format(
+            player1, odds[0], player2, odds[1])
+
+        print(bookmaker_odds)
+        bookmaker_probabilities = "The bookmaker probabilities  are: \n{} : " \
+                                  "{:.2f} and {} : {:.2f}.".format(player1, (1 / (float(odds[0])) - bias), player2,
+                                                                   (1 / (float(odds[1])) - bias))
+
+        print(bookmaker_probabilities)
+
+        odds_chosen = "The odds we chose to bet was {}".format(odds[abs(int(prediction) - 1)])
+
+        print(odds_chosen)
+        # Write the results to a text file
+        f.write(match_analysis + "\n")
+        f.write(our_decimal_odds + "\n")
+        f.write(bookmaker_odds + "\n")
+        f.write(our_probabilities + "\n")
+        f.write(bookmaker_probabilities + "\n")
+        f.write(odds_chosen + "\n")
+
+    f.write("Total amount of bets we made is: {}".format(bet_amount * count))
+    f.write("Total Winnings: {}".format(total_winnings))
     ROI = (total_winnings - (bet_amount * count)) / (bet_amount * count) * 100
-    print("Our ROI for {} was: {}.".format(tournament_pickle_file_name, ROI))
-    print("Accuracy over max probability and with odd threshold is {}.".format(correct / count))
+    f.write("Our ROI for {} was: {}.".format(tournament_pickle_file_name, ROI))
+    f.write("Accuracy over max probability and with odd threshold is {}.".format(correct / count))
+
+    # Convert text file to pdf
+
     return linear_clf
 
 
