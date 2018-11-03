@@ -28,7 +28,7 @@ def df2sqlite_v2(dataframe, db_name):
     """Bundan onceki !!!! Bunu unutma updated_stats V3 icin bunu yapmak daha dogru olabilir. Dont know the difference
     #     dataframe.to_sql(db_name, disk_engine ,if_exists='append')"""
 
-
+# This class is responsible for creating advanced stats database for each match in OnCourt Tennis Stats
 class FeatureExtraction(object):
 
     def __init__(self, database):
@@ -42,11 +42,7 @@ class FeatureExtraction(object):
         self.tournaments = self.db.get_tournaments()
         self.player_surface_dict = {}
 
-    # Create a player database from our panda ATP players dataframe
-
-    def create_games_won_for_both_players(self):
-        pass
-
+    # Creates columns for result, number of games won, number of total games played and the game spread
     def create_results(self, table):
 
         # Find number of games and number of sets for each game in stats dataset
@@ -57,11 +53,13 @@ class FeatureExtraction(object):
         table["Games_won_p1"] = ""  # Create a new column to store the number of games in  a match
         table["Games_won_p2"] = ""  # Create a new column to store the number of games in  a match
         table["Number_of_sets"] = ""
+        table["2_set_wins_tournament"] = ""
+        table["Game_Spread"] = ""
         empty_matches = 0
         unfinished_matches = 0
         # For each match in stats dataset
         for i in table.index:
-            print(i)
+            print("We are creating results at index {}".format(i))
             # get player ID's and tournament ID from stats dataset
             player1_id = table.at[i, 'ID1']
             player2_id = table.at[i, 'ID2']
@@ -95,9 +93,13 @@ class FeatureExtraction(object):
                     unfinished_matches = unfinished_matches + 1
 
                 else:
-                    p1_total_number_of_games = 0
+                    # variables we use to update database new database columns
+                    number_of_sets_won_by_p1 = 0
+                    number_of_sets_won_by_p2 = 0
+
+                    p1_total_number_of_games = 0 # These are used to calculate game spread
                     p2_total_number_of_games = 0
-                    total_number_of_games = 0  # variables
+                    total_number_of_games = 0
                     total_number_of_sets = len(sets)
 
                     for match_set in sets:
@@ -111,13 +113,24 @@ class FeatureExtraction(object):
                             p2_games = int(games[1])
                             p2_total_number_of_games = p2_total_number_of_games + p2_games
 
+                        if (p2_games > p1_games):
+                            number_of_sets_won_by_p2 = number_of_sets_won_by_p2 + 1
+                        else:
+                            number_of_sets_won_by_p1 = number_of_sets_won_by_p1 + 1
                         total_number_of_games = total_number_of_games + p1_games + p2_games
 
                     # Update the table entries
+                    max_number_of_sets_won = max(number_of_sets_won_by_p2, number_of_sets_won_by_p1)
+
                     table.at[i, "Number_of_games"] = str(total_number_of_games)
                     table.at[i, "Number_of_sets"] = str(total_number_of_sets)
                     table.at[i, "Games_won_p1"] = p1_total_number_of_games
                     table.at[i, "Games_won_p2"] = p2_total_number_of_games
+                    table.at[i, "Game_Spread"] = abs(p1_total_number_of_games - p2_total_number_of_games)
+                    if max_number_of_sets_won == 2:
+                        table.at[i, "2_set_wins_tournament"] = 1
+                    else:
+                        table.at[i, "2_set_wins_tournament"] = 0
 
         print("After deleting unfinished games, the length of our database is {}".format(len(table)))
         print("The matches we were unable to find {}.".format(empty_matches))
@@ -129,6 +142,7 @@ class FeatureExtraction(object):
 
         return stats_final
 
+    # Creates advanced metrics to be used as features from  OnCourt Stats
     def create_new_stats(self):
 
         # We will extract new features from stats dataset
@@ -158,7 +172,7 @@ class FeatureExtraction(object):
 
         # add breaking point conversions
         for i in self.stats.index:
-            print(i)
+            print("We are creating new stats at index {}".format(i))
             oncourt_stats = [int(self.stats.at[i, 'FSOF_1']),
                              int(self.stats.at[i, 'FSOF_2']),
                              int(self.stats.at[i, 'W1SOF_1']),
@@ -269,6 +283,7 @@ class FeatureExtraction(object):
 
         return stats_final
 
+    #Finds head to head statistics between two players for every match in our stats dataset.
     def get_head_to_head_statistics(self, stats):
 
         matches = self.unfiltered_matches
@@ -277,7 +292,7 @@ class FeatureExtraction(object):
         stats["H12H"] = ""
         stats["H21H"] = ""
         for i in stats.index:
-            print(i)
+            print("We are H2H stats at index {}".format(i))
             player1 = stats.at[i, "ID1"]
             player2 = stats.at[i, "ID2"]
             # Head to head games that Player 1 has won
@@ -308,15 +323,15 @@ class FeatureExtraction(object):
 
         return stats_final
 
+    # Adds court type to each match. Later to be used for feature weighting
     def add_court_types(self, stats):
-        # Adds court types to updated_stats dataset
 
         start_time = time.time()
 
         stats["court_type"] = ""
         court_id_none = 0
         for i in stats.index:
-            print(i)
+            print("We are adding court types at index {}".format(i))
             tournament_id = stats.at[i, "ID_T"]
             tournament = self.tournaments.loc[self.tournaments['ID_T'] == tournament_id]  # Find the tournament
 
@@ -335,15 +350,15 @@ class FeatureExtraction(object):
 
         return stats_final
 
+    # Finds the year in which each match was played and adds it to database as a year column
     def create_tournament_year_database(self, table):
-        print(len(self.tournaments))
         self.tournaments["DATE_T"] = pd.to_datetime(self.tournaments["DATE_T"])
         tours = self.tournaments["DATE_T"].dt.year.to_frame()
         tours.reset_index(level=0, inplace=True)
 
         table['year'] = ""
         for i in table.index:
-            print(i)
+            print("We are year of the match at index {}".format(i))
             tour_id = table.at[i, "ID_T"]
             tournament = tours.loc[tours["index"] == tour_id]
 
@@ -582,7 +597,7 @@ print(new_stats_v1.info())
 print(new_stats_v2.info())
 print(new_stats_v3.info())
 print(new_stats_v4.info())
-df2sqlite_v2(new_stats_v4, 'updated_stats_v4')
+df2sqlite_v2(new_stats_v4, 'updated_stats_v5')
 
 """
 feature_extraction.extract_players()
