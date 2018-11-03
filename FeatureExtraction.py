@@ -42,8 +42,8 @@ class FeatureExtraction(object):
         self.tournaments = self.db.get_tournaments()
         self.player_surface_dict = {}
 
-    # Creates columns for result, number of games won, number of total games played and the game spread
-    def create_results(self, table):
+    # Creates columns  number of games won by each player, number of total games played and the game spread
+    def create_set_and_game_stats(self, table):
 
         # Find number of games and number of sets for each game in stats dataset
         print("Before starting create_results function, the length of our database was {}".format(len(table)))
@@ -143,7 +143,7 @@ class FeatureExtraction(object):
         return stats_final
 
     # Creates advanced metrics to be used as features from  OnCourt Stats
-    def create_new_stats(self):
+    def create_advanced_features(self):
 
         # We will extract new features from stats dataset
 
@@ -284,7 +284,7 @@ class FeatureExtraction(object):
         return stats_final
 
     #Finds head to head statistics between two players for every match in our stats dataset.
-    def get_head_to_head_statistics(self, stats):
+    def create_h2h_stats(self, stats):
 
         matches = self.unfiltered_matches
         start_time = time.time()
@@ -351,7 +351,7 @@ class FeatureExtraction(object):
         return stats_final
 
     # Finds the year in which each match was played and adds it to database as a year column
-    def create_tournament_year_database(self, table):
+    def add_match_year(self, table):
         self.tournaments["DATE_T"] = pd.to_datetime(self.tournaments["DATE_T"])
         tours = self.tournaments["DATE_T"].dt.year.to_frame()
         tours.reset_index(level=0, inplace=True)
@@ -586,19 +586,20 @@ def create_surface_matrix(self):
 
 # RUN THIS CODE  
 # Code to create the Sqlite stats database with all the required information to create features
+"""
 feature_extraction = FeatureExtraction("db.sqlite")
-new_stats = feature_extraction.create_new_stats()
-new_stats_v1 = feature_extraction.create_results(new_stats)
-new_stats_v2 = feature_extraction.get_head_to_head_statistics(new_stats_v1)
+new_stats = feature_extraction.create_advanced_features()
+new_stats_v1 = feature_extraction.create_set_and_game_stats(new_stats)
+new_stats_v2 = feature_extraction.create_h2h_stats(new_stats_v1)
 new_stats_v3 = feature_extraction.add_court_types(new_stats_v2)
-new_stats_v4 = feature_extraction.create_tournament_year_database(new_stats_v3)
+new_stats_v4 = feature_extraction.add_match_year(new_stats_v3)
 print(new_stats.info())
 print(new_stats_v1.info())
 print(new_stats_v2.info())
 print(new_stats_v3.info())
 print(new_stats_v4.info())
 df2sqlite_v2(new_stats_v4, 'updated_stats_v5')
-
+"""
 """
 feature_extraction.extract_players()
 """

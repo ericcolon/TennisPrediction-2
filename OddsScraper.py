@@ -274,7 +274,7 @@ class OddsScraper(object):
         print("Number of matches: {}. For tournament {}.".format(len(flat_list), url.split(os.sep)[-3]))
         return flat_list
 
-    # Scrape the odds and player info from a match url for a CURRENT tournament
+    # Scrape the urls of all matches played in a currently ongoing tournament.
     def current_tournament_odds_scraper(self, url):
         tot_urls = []
         if url_is_alive(url):
@@ -543,10 +543,9 @@ odds_scraper.odds_scraper_for_a_finished_match(urls, "tokyo_2018_odds.pkl", save
 """
 # Wimbledon 2018
 
-"""
 urls = odds_scraper.historical_tournament_odds_scraper("https://www.oddsportal.com/tennis/united-kingdom/atp-wimbledon/results/",one_page=False)
-odds_scraper.odds_scraper_for_a_finished_match(urls, "wimbledon_2018_odds_v2.pkl", save=True)
-"""
+odds_scraper.odds_scraper_for_a_finished_match(urls, "wimbledon_2018_odds_v3.pkl", save=True)
+
 # Auckland 2018
 """
 
