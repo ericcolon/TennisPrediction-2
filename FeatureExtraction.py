@@ -44,12 +44,18 @@ class FeatureExtraction(object):
 
     # Create a player database from our panda ATP players dataframe
 
+    def create_games_won_for_both_players(self):
+        pass
+
     def create_results(self, table):
 
         # Find number of games and number of sets for each game in stats dataset
         print("Before starting create_results function, the length of our database was {}".format(len(table)))
         start_time = time.time()
         table["Number_of_games"] = ""  # Create a new column to store the number of games in  a match
+        table["Number_of_sets"] = ""
+        table["Games_won_p1"] = ""  # Create a new column to store the number of games in  a match
+        table["Games_won_p2"] = ""  # Create a new column to store the number of games in  a match
         table["Number_of_sets"] = ""
         empty_matches = 0
         unfinished_matches = 0
@@ -89,24 +95,29 @@ class FeatureExtraction(object):
                     unfinished_matches = unfinished_matches + 1
 
                 else:
-
+                    p1_total_number_of_games = 0
+                    p2_total_number_of_games = 0
                     total_number_of_games = 0  # variables
                     total_number_of_sets = len(sets)
 
                     for match_set in sets:
                         games = match_set.split('-')
                         p1_games = int(games[0])  # number of games player 1 has won in that set
-
+                        p1_total_number_of_games = p1_total_number_of_games + p1_games
                         if "(" in games[1]:
                             p2_games = int(games[1][0])  # number of games player 2 has won in that set
+                            p2_total_number_of_games = p2_total_number_of_games + p2_games
                         else:
                             p2_games = int(games[1])
+                            p2_total_number_of_games = p2_total_number_of_games + p2_games
 
                         total_number_of_games = total_number_of_games + p1_games + p2_games
 
                     # Update the table entries
                     table.at[i, "Number_of_games"] = str(total_number_of_games)
                     table.at[i, "Number_of_sets"] = str(total_number_of_sets)
+                    table.at[i, "Games_won_p1"] = p1_total_number_of_games
+                    table.at[i, "Games_won_p2"] = p2_total_number_of_games
 
         print("After deleting unfinished games, the length of our database is {}".format(len(table)))
         print("The matches we were unable to find {}.".format(empty_matches))
@@ -571,7 +582,7 @@ print(new_stats_v1.info())
 print(new_stats_v2.info())
 print(new_stats_v3.info())
 print(new_stats_v4.info())
-df2sqlite_v2(new_stats_v4, 'updated_stats_v3')
+df2sqlite_v2(new_stats_v4, 'updated_stats_v4')
 
 """
 feature_extraction.extract_players()
@@ -580,7 +591,7 @@ feature_extraction.extract_players()
 
 """ feature_extraction.extract_players()"""
 
-#This code is to create and calculate a surface matrix
+# This code is to create and calculate a surface matrix
 """ 
 
 means_and_stds = feature_extraction.create_surface_matrix()
