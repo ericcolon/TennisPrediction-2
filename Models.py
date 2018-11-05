@@ -42,6 +42,64 @@ from NeuralNets import make_nn_predictions, NeuralNetModel
 # Ensemble
 # from mlens.ensemble import SuperLearner
 
+def read_oddsportal_data(data_file, players_file, initial_odds_used, odds_length, p1_index, p2_index, result_index):
+    match_to_odds_dictionary = collections.OrderedDict()
+    match_to_results_dictionary = collections.OrderedDict()
+    p1_list = []
+    p2_list = []
+    results = []
+    count = 0
+    if initial_odds_used:
+        match_to_initial_odds_dictionary = collections.OrderedDict()
+        for odds in reversed(data_file):
+            assert len(odds) == odds_length
+            p1 = odds[p1_index]
+            p2 = odds[p2_index]
+            p1_id = players_file[players_file['NAME_P'] == p1]
+            p2_id = players_file[players_file['NAME_P'] == p2]
+            result = odds[result_index]
+
+            if p1_id.empty or p2_id.empty:
+                continue
+            else:
+                count = count + 1
+                player1_id = int(p1_id['ID_P'])
+                player2_id = int(p2_id['ID_P'])
+                p1_list.append(player1_id)
+                p2_list.append(player2_id)
+                results.append(result)
+                match_to_odds_dictionary[tuple([player1_id, player2_id])] = [odds[1], odds[2]]
+                match_to_initial_odds_dictionary[tuple([player1_id, player2_id])] = [odds[4], odds[5]]
+
+                match_to_results_dictionary[tuple([player1_id, player2_id])] = result
+
+        return [p1_list, p2_list, results, match_to_results_dictionary, match_to_odds_dictionary,
+                match_to_initial_odds_dictionary]
+
+    else:
+        for odds in reversed(data_file):
+            assert len(odds) == odds_length
+            p1 = odds[p1_index]
+            p2 = odds[p2_index]
+            p1_id = players_file[players_file['NAME_P'] == p1]
+            p2_id = players_file[players_file['NAME_P'] == p2]
+            result = odds[result_index]
+
+            if p1_id.empty or p2_id.empty:
+                continue
+            else:
+                count = count + 1
+                player1_id = int(p1_id['ID_P'])
+                player2_id = int(p2_id['ID_P'])
+                p1_list.append(player1_id)
+                p2_list.append(player2_id)
+                results.append(result)
+                match_to_odds_dictionary[tuple([player1_id, player2_id])] = [odds[1], odds[2]]
+
+                match_to_results_dictionary[tuple([player1_id, player2_id])] = result
+
+        return [p1_list, p2_list, results, match_to_results_dictionary, match_to_odds_dictionary]
+
 
 def create_database_based_on_set(database_name, match_type, new_db_name):
     conn = sqlite3.connect(database_name + '.db')
@@ -466,7 +524,7 @@ class Models(object):
         #   print(instance.id, instance.state)
 
     # Creates the feature stats from advanced stats database
-    def create_feature_set(self, feature_set_name, label_set_name):
+    def create_feature_set(self, feature_set_name, label_set_name, labeling_method):
         # Takes the dataset created by FeatureExtraction and calculates required features for our model.
         # As of July 17: takes 90 minutes to complete the feature creation.
         common_opponents_is_five = 0
@@ -544,6 +602,9 @@ class Models(object):
             time_discount_factor = 0.8
 
             total_number_of_games = self.dataset.at[i, "Number_of_games"]
+            total_number_of_sets = self.dataset.at[i, "Number_of_sets"]
+            game_spread = self.dataset.at[i, "Number_of_sets"]
+
             # Games played earlier than the current tournament we are investigating
             earlier_games_of_p1 = [game for game in player1_games.itertuples() if game.ID_T < curr_tournament]
 
@@ -633,7 +694,10 @@ class Models(object):
                         [serveadv_1 - serveadv_2, complete_1 - complete_2, w1sp_1 - w1sp_2, aces_1 - aces_2,
                          bp_1 - bp_2, tpw1 - tpw2, h2h_1 - h2h_2])
 
-                    label = 1
+                    if labeling_method == 'game_spread':
+                        label = int(game_spread)
+                    else:
+                        label = 1
 
                     if np.any(np.isnan(feature)):
                         continue
@@ -653,7 +717,11 @@ class Models(object):
                         #  bp_2 - bp_1, tpw2 - tpw1, h2h_2 - h2h_1])
                         [serveadv_2 - serveadv_1, complete_2 - complete_1, w1sp_2 - w1sp_1, aces_2 - aces_1,
                          bp_2 - bp_1, tpw2 - tpw1, h2h_2 - h2h_1])
-                    label = 2
+
+                    if labeling_method == 'game_spread':
+                        label = -int(game_spread)
+                    else:
+                        label = 0
 
                     if np.any(np.isnan(feature)):
                         continue
@@ -684,7 +752,8 @@ class Models(object):
     def train_decision_stump_model(self, dataset_name, labelset_name, number_of_features, development_mode,
                                    prediction_mode, historical_tournament, training_mode,
                                    test_given_model, save, tournament_pickle_file_name, court_type,
-                                   uncertainty_used, neural_net_model_name, using_neural_net=False):
+                                   uncertainty_used, neural_net_model_name, using_neural_net=False,
+                                   initial_odds_used=True):
         features = []
         labels = []
         fraction_of_matches = 0.4
@@ -769,97 +838,84 @@ class Models(object):
 
         if prediction_mode:
             print('We are in prediction mode.')
-            match_to_odds_dictionary = collections.OrderedDict()
-            match_to_results_dictionary = collections.OrderedDict()
+
             match_uncertainty_dict = collections.OrderedDict()
-            p1_list = []
-            p2_list = []
-            results = []
+
             prediction_threshold = 90
-            if historical_tournament:
-                print("We are investigating {}.".format(tournament_pickle_file_name))
-                odds_file = loads_odds_into_a_list(tournament_pickle_file_name)
-                self.players.ID_P = self.players.ID_P.astype(int)
-                print("The initial number of games in this tournament with odds scraped is {}.".format(
-                    len(odds_file)))
+            print("We are investigating {}.".format(tournament_pickle_file_name))
+            odds_file = loads_odds_into_a_list(tournament_pickle_file_name)
+            print(odds_file)
+            self.players.ID_P = self.players.ID_P.astype(int)
+            print("The initial number of games in this tournament with odds scraped is {}.".format(
+                len(odds_file)))
 
-                count = 0
-
-                for odds in reversed(odds_file):
-                    assert len(odds) == 7
-                    p1 = odds[4]
-                    p2 = odds[5]
-                    p1_id = self.players[self.players['NAME_P'] == p1]
-                    p2_id = self.players[self.players['NAME_P'] == p2]
-                    result = odds[6]
-
-                    if p1_id.empty or p2_id.empty:
-                        continue
-                    else:
-                        count = count + 1
-                        player1_id = int(p1_id['ID_P'])
-                        player2_id = int(p2_id['ID_P'])
-                        p1_list.append(player1_id)
-                        p2_list.append(player2_id)
-                        results.append(result)
-                        match_to_odds_dictionary[tuple([player1_id, player2_id])] = [odds[1], odds[2]]
-                        match_to_results_dictionary[tuple([player1_id, player2_id])] = result
-
-                print("The number of matches left after scraping the ID's of players is {}.".format(count))
-
-                # Get the list of [match, calculated feature, calculated uncertainty] for each match
-                match_features_uncertainty_list = [
-                    self.make_predictions_using_DT(p1, p2, court_type, 20000, number_of_features) for i, (p1, p2) in
-                    enumerate(zip(p1_list, p2_list))]
-                print('When the features from prediction is first created, its size is {}'.format(
-                    len(match_features_uncertainty_list)))
-
-                for i, (match, feature, uncertainty) in enumerate(match_features_uncertainty_list):
-                    if uncertainty > prediction_threshold:
-                        del match_to_results_dictionary[match]
-                        del match_to_odds_dictionary[match]
-                    elif np.array_equal(feature, np.zeros([number_of_features, ])):
-                        del match_to_results_dictionary[match]
-                        del match_to_odds_dictionary[match]
-                    else:
-                        match_uncertainty_dict[match] = uncertainty
-                print("Ater uncertainty threshold, remaining number of matches is {}".format(
-                    len(match_to_results_dictionary)))
-
-                features_from_prediction = np.asarray([element[1] for element in match_features_uncertainty_list if
-                                                       element[0] in list(match_to_results_dictionary.keys())])
+            count = 0
+            # If we have initial odds. The resulting read operations are a bit different.
+            if initial_odds_used:
+                p1_list, p2_list, results, match_to_results_dictionary, match_to_odds_dictionary, \
+                match_to_initial_odds_dictionary = read_oddsportal_data(odds_file, self.players, True, 9, 6, 7, 8)
 
             else:
+                p1_list, p2_list, results, match_to_results_dictionary, match_to_odds_dictionary = read_oddsportal_data(
+                    odds_file, self.players, False, 7, 4, 5, 6)
+                match_to_initial_odds_dictionary = OrderedDict()
 
-                odds_of_tournament = loads_odds_into_a_list(tournament_pickle_file_name)
-                print(odds_of_tournament)
-                self.players.ID_P = self.players.ID_P.astype(int)
-                print("The initial number of games in this tournament with odds scraped is {}.".format(
-                    len(odds_of_tournament)))
-                count = 0
+            print("The number of matches left after scraping the ID's of players is {}.".format(count))
+            print(len(match_to_initial_odds_dictionary))
+            # Get the list of [match, calculated feature, calculated uncertainty] for each match
+            match_features_uncertainty_list = [
+                self.make_predictions_using_DT(p1, p2, court_type, 20000, number_of_features) for i, (p1, p2) in
+                enumerate(zip(p1_list, p2_list))]
+            print('When the features from prediction is first created, its size is {}'.format(
+                len(match_features_uncertainty_list)))
 
-                for odds in reversed(odds_of_tournament):
-                    assert len(odds) == 6
-                    p1 = odds[4]
-                    p2 = odds[5]
-                    p1_id = self.players[self.players['NAME_P'] == p1]
-                    p2_id = self.players[self.players['NAME_P'] == p2]
-                    if p1_id.empty or p2_id.empty:
-                        continue
-                    else:
-                        count = count + 1
-                        player1_id = int(p1_id['ID_P'])
-                        player2_id = int(p2_id['ID_P'])
-                        p1_list.append(player1_id)
-                        p2_list.append(player2_id)
-                        match_to_odds_dictionary[tuple([player1_id, player2_id])] = [odds[1], odds[2]]
-                    print("The number of matches left after scraping the ID's of players is {}.".format(count))
-                    assert len(p1_list) == len(p2_list)
+            for i, (match, feature, uncertainty) in enumerate(match_features_uncertainty_list):
+                if uncertainty > prediction_threshold:
+                    del match_to_results_dictionary[match]
+                    del match_to_odds_dictionary[match]
+                    del match_to_initial_odds_dictionary[match]
 
-                features_from_prediction = np.asarray(
-                    [self.make_predictions_using_DT(p1, p2, court_type, 17000, number_of_features) for i, (p1, p2) in
-                     enumerate(zip(p1_list, p2_list))])
-                print("features_from_prediction length: {}".format(len(features_from_prediction)))
+                elif np.array_equal(feature, np.zeros([number_of_features, ])):
+                    del match_to_results_dictionary[match]
+                    del match_to_odds_dictionary[match]
+                    del match_to_initial_odds_dictionary[match]
+
+                else:
+                    match_uncertainty_dict[match] = uncertainty
+            print("Ater uncertainty threshold, remaining number of matches is {}".format(
+                len(match_to_results_dictionary)))
+
+            features_from_prediction = np.asarray([element[1] for element in match_features_uncertainty_list if
+                                                   element[0] in list(match_to_results_dictionary.keys())])
+
+            """
+             odds_of_tournament = loads_odds_into_a_list(tournament_pickle_file_name)
+            print(odds_of_tournament)
+            self.players.ID_P = self.players.ID_P.astype(int)
+            print("The initial number of games in this tournament with odds scraped is {}.".format(
+                len(odds_of_tournament)))
+            count = 0
+
+            for odds in reversed(odds_of_tournament):
+                assert len(odds) == 6
+                p1 = odds[4]
+                p2 = odds[5]
+                p1_id = self.players[self.players['NAME_P'] == p1]
+                p2_id = self.players[self.players['NAME_P'] == p2]
+                if p1_id.empty or p2_id.empty:
+                    continue
+                else:
+                    count = count + 1
+                    player1_id = int(p1_id['ID_P'])
+                    player2_id = int(p2_id['ID_P'])
+                    p1_list.append(player1_id)
+                    p2_list.append(player2_id)
+                    match_to_odds_dictionary[tuple([player1_id, player2_id])] = [odds[1], odds[2]]
+                print("The number of matches left after scraping the ID's of players is {}.".format(count))
+                assert len(p1_list) == len(p2_list)
+            """
+
+            print("features_from_prediction length: {}".format(len(features_from_prediction)))
 
             # Scale the features with the standard deviations of our dataset.
             features_from_prediction_final = preprocess_features_of_predictions(features_from_prediction,
@@ -872,18 +928,19 @@ class Models(object):
             print("match_to_results_dictionary length: {}".format(len(match_to_results_dictionary)))
             print("Number of results: {}".format(len(final_results)))
             print("match_to_odds_dictionary length: {}".format(len(match_to_odds_dictionary)))
+            print("match to initial odds dictionary length {}".format(len(match_to_initial_odds_dictionary)))
             print("match_uncertainty_dict length: {}".format(len(match_uncertainty_dict)))
 
             # Sanity check
             assert len(features_from_prediction_final) == len(match_to_results_dictionary) == len(final_results) == len(
-                match_to_odds_dictionary) == len(match_uncertainty_dict)
+                match_to_odds_dictionary) == len(match_uncertainty_dict) == len(match_to_initial_odds_dictionary)
 
             if using_neural_net:
                 linear_clf = make_nn_predictions(neural_net_model_name, tournament_pickle_file_name,
                                                  x_scaled_no_duplicates, y_no_duplicates,
                                                  features_from_prediction_final, final_results,
                                                  match_to_results_dictionary, match_to_odds_dictionary, self.players,
-                                                 match_uncertainty_dict)
+                                                 match_uncertainty_dict, match_to_initial_odds_dictionary)
 
             else:
                 # WARNING: BLOWING UP THE FEATURE SPACE
@@ -1451,15 +1508,14 @@ DT = Models("updated_stats_v3")  # Initalize the model class with our sqlite3 ad
 
 # To create the feature and label space
 
-# data_label = DT.create_feature_set('uncertainty_dict_v14.txt', 'label_v14.txt')
-# print(len(data_label[0]))
-# print(len(data_label[1]))
+#data_label = DT.create_feature_set('uncertainty_dict_game_spread.txt', 'label_game_spread.txt', labeling_method="game_spread")
+#print(len(data_label[0]))
+#print(len(data_label[1]))
 
 # To create new database based on best of 2 vs best of 3 tournaments.
 # create_database_based_on_set("updated_stats_v5", 5, "updated_stats_v5_5set_matches")
 # To train and make predictions on Decision Stump Model
-# US OPEN 2018-17
-"""
+
 DT.train_decision_stump_model('uncertainty_dict_v14.txt', 'label_v12_short.txt',
                               number_of_features=7,
                               development_mode=False,
@@ -1467,11 +1523,9 @@ DT.train_decision_stump_model('uncertainty_dict_v14.txt', 'label_v12_short.txt',
                               save=False,
                               training_mode=False,
                               test_given_model=False,
-                              tournament_pickle_file_name='us_open_2018_odds.pkl',
-                              court_type=1, uncertainty_used=True, neural_net_model_name='ckpt.pth04adam05.tar',
-                              using_neural_net=True)
-
-"""
+                              tournament_pickle_file_name='wimbledon_2018_odds_v4.pkl',
+                              court_type=5, uncertainty_used=True, neural_net_model_name='ckpt.pth04adam05.tar',
+                              using_neural_net=True, initial_odds_used=True)
 
 # WIMBLEDON 2018
 """

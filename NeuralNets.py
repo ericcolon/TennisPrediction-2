@@ -13,7 +13,6 @@ import torchsample.callbacks
 import torchsample.metrics
 import math
 from torch.autograd import Variable
-import pdfkit
 
 
 # I Overwrite this class from torchsample. The one at torch sample does not work for multi class outputs.
@@ -175,13 +174,13 @@ def calculate_roc_score(y, y_pred, train):
 
 
 def make_nn_predictions(filename, tournament_pickle_file_name, x_scaled_no_duplicates, y_no_duplicates,
-                        features_from_prediction_final, final_results,
-                        match_to_results_dictionary, match_to_odds_dictionary, players, match_uncertainty_dict):
+                        features_from_prediction_final, final_results, match_to_results_dictionary,
+                        match_to_odds_dictionary, players, match_uncertainty_dict, match_to_initial_odds_dictionary):
     bet_amount = 10
     total_winnings = 0
     count = 0
     correct = 0
-    tournament_name = "us_open_2018_model_results.txt\n"
+    tournament_name = "Wimbledon_2018_model_results_with_initial_odds.txt\n"
     f = open(tournament_name, "w+")
     match_to_results_list = list(match_to_results_dictionary.items())  # get list of matches
 
@@ -222,12 +221,13 @@ def make_nn_predictions(filename, tournament_pickle_file_name, x_scaled_no_dupli
 
         match = match_to_results_list[i][0]  # can do this because everything is ordered
         odds = match_to_odds_dictionary[tuple(match)]
+        initial_bookmaker_odds = match_to_initial_odds_dictionary[tuple(match)]
         uncertainty = match_uncertainty_dict[tuple(match)]
         total_bookmaker_prob = (1 / float(odds[0])) + (1 / float(odds[1]))
         bias = abs(1 - total_bookmaker_prob) / 2
 
-        # predictions_dict[tuple(match)] = [prediction, result, np.asarray(prediction_probability),
-        #                                 odds, odds[abs(int(prediction) - 1)]]
+        initial_bias = abs(1- ((1 / float(initial_bookmaker_odds[0])) + (1 / float(initial_bookmaker_odds[1])))) /2
+
         if result == prediction:
 
             if abs(float(odds[abs(int(prediction) - 1)])) < 20:
@@ -262,13 +262,19 @@ def make_nn_predictions(filename, tournament_pickle_file_name, x_scaled_no_dupli
         print(match_analysis)
         print(our_probabilities)
         print(our_decimal_odds)
-        bookmaker_odds = "The bookmakers (actual) odds were: \n{} : {} and {} : {}".format(
+        bookmaker_odds = "The bookmakers final odds were: \n{} : {} and {} : {}".format(
             player1, odds[0], player2, odds[1])
 
+        bookmaker_odds_initially = "The bookmakers initial (starting) odds were: \n{} : {} and {} : {}".format(
+            player1, initial_bookmaker_odds[0], player2, initial_bookmaker_odds[1])
+
         print(bookmaker_odds)
-        bookmaker_probabilities = "The bookmaker probabilities  are: \n{} : " \
+        bookmaker_probabilities = "The final bookmaker probabilities  are: \n{} : " \
                                   "{:.2f} and {} : {:.2f}.".format(player1, (1 / (float(odds[0])) - bias), player2,
                                                                    (1 / (float(odds[1])) - bias))
+        bookmaker_probabilities_initially = "The initial bookmaker probabilities  are: \n{} : " \
+                                  "{:.2f} and {} : {:.2f}.".format(player1, (1 / (float(initial_bookmaker_odds[0])) - initial_bias), player2,
+                                                                   (1 / (float(initial_bookmaker_odds[1])) - initial_bias))
 
         print(bookmaker_probabilities)
 
@@ -276,11 +282,21 @@ def make_nn_predictions(filename, tournament_pickle_file_name, x_scaled_no_dupli
 
         print(odds_chosen)
         # Write the results to a text file
-        f.write(match_analysis + "\n")
-        f.write(our_decimal_odds + "\n")
+        f.write("Our Prediction and result" + "\n")
+        f.write(match_analysis + "\n" + "\n")
+
+        f.write("INITIAL bookmaker odds and probabilities:" + "\n")
+        f.write(bookmaker_odds_initially + "\n")
+        f.write(bookmaker_probabilities_initially + "\n" + "\n")
+
+        f.write("FINAL bookmaker odds and probabilities:" + "\n")
         f.write(bookmaker_odds + "\n")
+        f.write(bookmaker_probabilities + "\n" + "\n")
+
+        f.write("MODEL odds and probabilities:" + "\n")
         f.write(our_probabilities + "\n")
-        f.write(bookmaker_probabilities + "\n")
+        f.write(our_decimal_odds + "\n")
+
         f.write(odds_chosen + "\n")
 
     f.write("Total amount of bets we made is: {}\n".format(bet_amount * count))

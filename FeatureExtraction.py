@@ -28,6 +28,7 @@ def df2sqlite_v2(dataframe, db_name):
     """Bundan onceki !!!! Bunu unutma updated_stats V3 icin bunu yapmak daha dogru olabilir. Dont know the difference
     #     dataframe.to_sql(db_name, disk_engine ,if_exists='append')"""
 
+
 # This class is responsible for creating advanced stats database for each match in OnCourt Tennis Stats
 class FeatureExtraction(object):
 
@@ -97,7 +98,7 @@ class FeatureExtraction(object):
                     number_of_sets_won_by_p1 = 0
                     number_of_sets_won_by_p2 = 0
 
-                    p1_total_number_of_games = 0 # These are used to calculate game spread
+                    p1_total_number_of_games = 0  # These are used to calculate game spread
                     p2_total_number_of_games = 0
                     total_number_of_games = 0
                     total_number_of_sets = len(sets)
@@ -113,7 +114,7 @@ class FeatureExtraction(object):
                             p2_games = int(games[1])
                             p2_total_number_of_games = p2_total_number_of_games + p2_games
 
-                        if (p2_games > p1_games):
+                        if p2_games > p1_games:
                             number_of_sets_won_by_p2 = number_of_sets_won_by_p2 + 1
                         else:
                             number_of_sets_won_by_p1 = number_of_sets_won_by_p1 + 1
@@ -283,7 +284,7 @@ class FeatureExtraction(object):
 
         return stats_final
 
-    #Finds head to head statistics between two players for every match in our stats dataset.
+    # Finds head to head statistics between two players for every match in our stats dataset.
     def create_h2h_stats(self, stats):
 
         matches = self.unfiltered_matches
