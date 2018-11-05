@@ -147,7 +147,7 @@ def step_decay(epoch, initial_rate):
 
 # To switch from Variable into numpy for testing
 def resize_label_arrays(y_pred_torch, y):
-    prob = F.softmax(y_pred_torch, dim=1)
+    #prob = F.softmax(y_pred_torch, dim=1)
     y_pred_np = y_pred_torch.data.numpy()
     pred_np = np.argmax(y_pred_np, axis=1)
     pred_np = np.reshape(pred_np, len(pred_np), order='F').reshape((len(pred_np), 1))
@@ -180,7 +180,7 @@ def make_nn_predictions(filename, tournament_pickle_file_name, x_scaled_no_dupli
     total_winnings = 0
     count = 0
     correct = 0
-    tournament_name = "Wimbledon_2018_model_results_with_initial_odds.txt\n"
+    tournament_name = "Us_Open_2018_Model_Results.txt\n"
     f = open(tournament_name, "w+")
     match_to_results_list = list(match_to_results_dictionary.items())  # get list of matches
 

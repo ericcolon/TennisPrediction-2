@@ -491,7 +491,7 @@ class Models(object):
         conn = sqlite3.connect(database_name + '.db')
 
         # The name on this table should be the same as the dataframe
-        dataset = pd.read_sql_query('SELECT * FROM updated_stats_v3', conn)
+        dataset = pd.read_sql_query('SELECT * FROM updated_stats_v5', conn)
 
         # This changes all values to numeric if sqlite3 conversion gave a string
         dataset = dataset.apply(pd.to_numeric, errors='coerce')
@@ -526,8 +526,8 @@ class Models(object):
     # Creates the feature stats from advanced stats database
     def create_feature_set(self, feature_set_name, label_set_name, labeling_method):
         # Takes the dataset created by FeatureExtraction and calculates required features for our model.
-        # As of July 17: takes 90 minutes to complete the feature creation.
-        common_opponents_is_five = 0
+        # As of October 8: takes 40-45 minutes to complete the feature creation.
+        common_opponents_exist = 0
         start_time = time.time()
         zero_common_opponents = 0
         ten_common_opponents = 0
@@ -594,6 +594,7 @@ class Models(object):
             player2_games = self.dataset.loc[
                 np.logical_or(self.dataset.ID1 == player2_id, self.dataset.ID2 == player2_id)]
 
+            # Get required information from current column
             curr_tournament = self.dataset.at[i, "ID_T"]
             current_court_id = self.dataset.at[i, "court_type"]
             current_year = float(self.dataset.at[i, 'year'])
@@ -629,18 +630,17 @@ class Models(object):
             sb = set(opponents_of_p2)
 
             # Find common opponents that these players have faced
-            # TO DO : YOU HAVE TO ADD THE CURRENT OPPONENT IF THEY HAVE PLAYED BEFORE
             common_opponents = sa.intersection(sb)
 
             if len(common_opponents) == 0:
                 zero_common_opponents = zero_common_opponents + 1
-                continue
                 # If they have zero common opponents, we cannot get features for this match
+                continue
 
             else:
                 if len(common_opponents) > 9:
                     ten_common_opponents = ten_common_opponents + 1
-                common_opponents_is_five = common_opponents_is_five + 1
+                common_opponents_exist = common_opponents_exist + 1
                 # Find matches played against common opponents
                 player1_games_updated = [game for opponent in common_opponents for game in earlier_games_of_p1 if
                                          (player1_id == game.ID1 and opponent == game.ID2) or (
@@ -651,6 +651,7 @@ class Models(object):
 
                 weights_of_p1 = defaultdict(list)
                 weights_of_p2 = defaultdict(list)
+                # The below calculations are used to devise an uncertainty value for this match.
                 for opponent in common_opponents:
                     for game in player1_games_updated:
                         if opponent == game.ID2 or opponent == game.ID1:
@@ -673,10 +674,12 @@ class Models(object):
                                                                                      game.year))
                 sum_of_weights = 0
                 for key in weights_of_p1.keys() & weights_of_p2.keys():
-                    # print(key, weights_of_p1[key], weights_of_p2[key])
                     sum_of_weights = sum_of_weights + (sum(weights_of_p1[key]) * sum(weights_of_p2[key]))
+
+                # Using all of the weighting, we devise a overall uncertainty value
                 overall_uncertainty = 1 / sum_of_weights
 
+                # Get the difference of weighted average for each feature.
                 serveadv_1, serveadv_2, complete_1, complete_2, w1sp_1, w1sp_2, bp_1, bp_2, aces_1, aces_2, h2h_1, \
                 h2h_2, tpw1, tpw2 = self.get_average_features(player1_id, player2_id, player1_games_updated,
                                                               player2_games_updated, court_dict, current_court_id,
@@ -684,16 +687,15 @@ class Models(object):
 
                 if bp_1 == 1 or bp_1 == 0 or bp_2 == 0 or bp_2 == 1:
                     continue
-                # The first feature of our feature set is the last match on the stats dataset
 
                 if random() > 0.5:
                     # Player 1 has won. So we label it 1.
                     feature = np.array(
-                        #  [serveadv_1, complete_1, w1sp_1, aces_1, bp_1, tpw1, serveadv_2, complete_2, w1sp_2, aces_2,
-                        #  bp_2, tpw2,
+
                         [serveadv_1 - serveadv_2, complete_1 - complete_2, w1sp_1 - w1sp_2, aces_1 - aces_2,
                          bp_1 - bp_2, tpw1 - tpw2, h2h_1 - h2h_2])
 
+                    # Different label methods. Options = outcome or game spread
                     if labeling_method == 'game_spread':
                         label = int(game_spread)
                     else:
@@ -702,7 +704,6 @@ class Models(object):
                     if np.any(np.isnan(feature)):
                         continue
                     else:
-                        # print(feature.tolist() + [label])
                         feature_uncertainty_dict[tuple(feature.tolist() + [label])] = overall_uncertainty
                         x.append(feature)
                         y.append(label)
@@ -712,9 +713,6 @@ class Models(object):
                     # This is necessary because our dataset has a specific format where first player always wins.
 
                     feature = np.array(
-                        # [serveadv_2, complete_2, w1sp_2, aces_2, bp_2, tpw2, serveadv_1, complete_1, w1sp_1, aces_1,
-                        #  bp_1, tpw1, serveadv_2 - serveadv_1, complete_2 - complete_1, w1sp_2 - w1sp_1, aces_2 - aces_1,
-                        #  bp_2 - bp_1, tpw2 - tpw1, h2h_2 - h2h_1])
                         [serveadv_2 - serveadv_1, complete_2 - complete_1, w1sp_2 - w1sp_1, aces_2 - aces_1,
                          bp_2 - bp_1, tpw2 - tpw1, h2h_2 - h2h_1])
 
@@ -726,19 +724,16 @@ class Models(object):
                     if np.any(np.isnan(feature)):
                         continue
                     else:
-                        #  print(feature.tolist() + [label])
 
                         x.append(feature)
                         y.append(label)
                         feature_uncertainty_dict[tuple(feature.tolist() + [label])] = overall_uncertainty
 
-        print("{} matches had common opponents in the past".format(common_opponents_is_five))
+        print("{} matches had common opponents in the past".format(common_opponents_exist))
         print("{} matches had more than 10 common opponents in the past".format(ten_common_opponents))
         print("{} matches 0 common opponents in the past".format(zero_common_opponents))
         print("The total number of matches in our feature set is {}".format(len(x)))
         print("Time took for creating stat features for each match took--- %s seconds ---" % (time.time() - start_time))
-        # with open(feature_set_name, "wb") as fp:  # Pickling
-        # pickle.dump(x, fp)
 
         with open(label_set_name, "wb") as fp:  # Pickling
             pickle.dump(y, fp)
@@ -748,12 +743,12 @@ class Models(object):
 
         return [feature_uncertainty_dict, y]
 
-    # Trains, develops and makes predictions for Stacked generalization ensemble models
+    # Trains, develops and makes predictions for Stacked generalization ensemble and NN models
     def train_model(self, dataset_name, labelset_name, number_of_features, development_mode,
-                                   prediction_mode, historical_tournament, training_mode,
-                                   test_given_model, save, tournament_pickle_file_name, court_type,
-                                   uncertainty_used, neural_net_model_name, using_neural_net=False,
-                                   initial_odds_used=True):
+                    prediction_mode, historical_tournament, training_mode,
+                    test_given_model, save, tournament_pickle_file_name, court_type,
+                    uncertainty_used, neural_net_model_name, using_neural_net=False,
+                    initial_odds_used=True):
         features = []
         labels = []
         fraction_of_matches = 0.4
@@ -1504,25 +1499,25 @@ class Models(object):
             return [tuple([player1_id, player2_id]), np.zeros([number_of_features, ]), 10000]
 
 
-DT = Models("updated_stats_v3")  # Initalize the model class with our sqlite3 advanced stats database
+DT = Models("updated_stats_v5")  # Initalize the model class with our sqlite3 advanced stats database
 
 # To create the feature and label space
 
-#data_label = DT.create_feature_set('uncertainty_dict_game_spread.txt', 'label_game_spread.txt', labeling_method="game_spread")
-#print(len(data_label[0]))
-#print(len(data_label[1]))
+# data_label = DT.create_feature_set('uncertainty_dict_game_spread.txt', 'label_game_spread.txt', labeling_method="game_spread")
+# print(len(data_label[0]))
+# print(len(data_label[1]))
 
 
 DT.train_model('uncertainty_dict_v14.txt', 'label_v12_short.txt',
-                              number_of_features=7,
-                              development_mode=False,
-                              prediction_mode=True, historical_tournament=True,
-                              save=False,
-                              training_mode=False,
-                              test_given_model=False,
-                              tournament_pickle_file_name='paris_open_2018_v2.pkl',
-                              court_type=1, uncertainty_used=True, neural_net_model_name='ckpt.pth04adam05.tar',
-                              using_neural_net=True, initial_odds_used=True)
+               number_of_features=7,
+               development_mode=False,
+               prediction_mode=True, historical_tournament=True,
+               save=False,
+               training_mode=False,
+               test_given_model=False,
+               tournament_pickle_file_name='us_open_2018_odds_v2.pkl',
+               court_type=1, uncertainty_used=True, neural_net_model_name='ckpt.pth04adam05.tar',
+               using_neural_net=True, initial_odds_used=True)
 
 # WIMBLEDON 2018
 """
