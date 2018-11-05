@@ -15,8 +15,18 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.wait import WebDriverWait
+from selenium.webdriver.common.action_chains import ActionChains
+
 # Sqlite3 - Panda converter library
 from sqlalchemy import create_engine
+
+
+def american_to_decimal(american_odd):
+    if int(american_odd) > 0:
+        american_odd = float(american_odd / 100) + 1
+    else:
+        american_odd = float(abs(100 / american_odd)) + 1
+    return american_odd
 
 
 def df2sqlite_v2(dataframe, db_name):
@@ -46,6 +56,20 @@ def url_is_alive(url):
         return False
 
 
+# Helper function to hover over odds to capture initial odds in oddsportal.com
+def hover(driver, xpath):
+    element = driver.find_element_by_xpath(xpath)
+    hov = ActionChains(driver).move_to_element(element)
+    hov.perform()
+
+
+def index_of(val, in_list):
+    try:
+        return in_list.index(val)
+    except ValueError:
+        return -1
+
+
 def get_player_names(player_names_in_reverse, player1, player2):
     player1_last_name_list = [name for name in player1.split() if '.' not in name]
     player2_last_name_list = [name for name in player2.split() if '.' not in name]
@@ -57,8 +81,10 @@ def get_player_names(player_names_in_reverse, player1, player2):
         player1_last_name_list = player1_last_name_list[0].split('-')
     # print("player2_last_name: {}".format(player2_last_name_list))
     #  print("player1_last_name_list: {}".format(player1_last_name_list))
+    player_2_last_name_index = index_of(player2_last_name_list[0], player_names_in_reverse)
 
-    player_2_last_name_index = player_names_in_reverse.index(player2_last_name_list[0])  # smith
+    if player_2_last_name_index == -1:
+        return 0
     #  print("player_2_last_name_index: {}".format(player_2_last_name_index))
 
     player_2_name_reverse = player_names_in_reverse[player_2_last_name_index:]
@@ -67,7 +93,10 @@ def get_player_names(player_names_in_reverse, player1, player2):
     player_2_first_name_index = player_2_name_reverse.index(player2_last_name_list[-1])
     player_2_first_name = player_2_name_reverse[player_2_first_name_index + 1:]
 
-    player1_last_name_index = player_names_in_reverse.index(player1_last_name_list[-1])
+    player1_last_name_index = index_of(player1_last_name_list[-1], player_names_in_reverse)
+    if player1_last_name_index == -1:
+        return 0
+
     player1_last_name = player_names_in_reverse[:player1_last_name_index + 1]
     player1_first_name = player_names_in_reverse[player1_last_name_index + 1:player_2_last_name_index:1]
 
@@ -292,41 +321,74 @@ class OddsScraper(object):
         return flat_list
 
     # Scraping the odds of a future match
-    def odds_scraper_for_future_match(self, match_urls, odds_database_name, save):
-        # get the fuckin local path
+    def odds_scraper_for_future_match(self, match_urls, odds_database_name, save, initial_odds_exist):
         chromedriver = '/Users/aysekozlu/PyCharmProjects/TennisModel/chromedriver'
         driver = webdriver.Chrome(chromedriver)
         i = 0
+        init_p1_odd = 0
+        init_p2_odd = 0
         # For each match
         odds_and_players = []
         for url in match_urls:
+            print('Current URL {}'.format(url))
             data = []
             match_url = 'http://www.oddsportal.com' + url
             i = i + 1
+            print("We are on match {}".format(i))
             driver.get(match_url)
             soup = BeautifulSoup(driver.page_source, 'html.parser')  # scrape the website
 
             # Selecting odds button
-            expansion_button = WebDriverWait(driver, 10).until(
+            expansion_button = WebDriverWait(driver, 100).until(
                 EC.element_to_be_clickable((By.XPATH, '// *[ @ id = "user-header-oddsformat-expander"]')))
             expansion_button.click()
             # Selecting EU Odds
-            eu_odds_button = WebDriverWait(driver, 10).until(
+            eu_odds_button = WebDriverWait(driver, 100).until(
                 EC.element_to_be_clickable((By.XPATH, '// *[ @ id = "user-header-oddsformat"] / li[1] / a')))
             eu_odds_button.click()
 
             bookie_data = detectBookieData(soup)
+
             if bookie_data is not None:
+
                 table = bookie_data.find('table', {'class': "table-main detail-odds sortable"})  # Find the Odds Table
                 # This part is scraping a Beautiful Soup Table. Returns the odds and the bookie name for the match
                 table_body = table.find('tbody')
                 rows = table_body.find_all('tr')
                 for row in rows:
                     cols = row.find_all('td')
-                    cols = [ele.text.strip() for ele in cols]
-                    if 'bwin' in cols:
+                    cols_text = [ele.text.strip() for ele in cols]
+
+                    if 'bwin' in cols_text:
+                        # for event_tag in cols:
+                        # if event_tag.find("div", onmouseover=True) is not None:
+                        #  print(event_tag)
+                        # print(event_tag.find("div", onmouseover=True))
+                        if initial_odds_exist:
+                            wait = WebDriverWait(driver, 100)
+                            # ignored_exceptions = [EC.NoSuchElementException, EC.StaleElementReferenceException]
+                            wait.until(EC.presence_of_element_located(
+                                (By.XPATH, "//*[@id =" + '"odds-data-table"' + "]/div[1]/table/tbody/tr[8]/td[2]")))
+                            hover(driver, "//*[@id =" + '"odds-data-table"' + "]/div[1]/table/tbody/tr[8]/td[2]")
+                            # wait.until(EC.visibility_of_element_located(
+                            #    (By.XPATH, "//*[@id =" + '"odds-data-table"' + "]/div[1]/table/tbody/tr[8]/td[2]")))
+
+                            data_p1 = driver.find_element_by_xpath("//*[@id='tooltiptext']")
+                            init_p1_odd = float(data_p1.text.split()[-1])
+
+                            wait.until(EC.presence_of_element_located(
+                                (By.XPATH, "//*[@id =" + '"odds-data-table"' + "]/div[1]/table/tbody/tr[8]/td[3]")))
+
+                            hover(driver, "//*[@id =" + '"odds-data-table"' + "]/div[1]/table/tbody/tr[8]/td[3]")
+
+                            data_p2 = driver.find_element_by_xpath("//*[@id='tooltiptext']")
+                            init_p2_odd = float(data_p2.text.split()[-1])
+
                         data.append(
-                            [ele for ele in cols if ele])  # Now our list includes ['bookie',odd 1, odd 2, payout]
+                            [ele for ele in cols_text if ele])
+                        if initial_odds_exist:
+                            data.append([init_p1_odd,
+                                         init_p2_odd])  # ['bookie',odd 1, odd 2, payout,initial_odd1, initial_odd2]
 
                 # Here we start a list of operations to get player names correctly.
                 player_url = url.strip().split(os.sep)[-2]
@@ -341,12 +403,24 @@ class OddsScraper(object):
                     ' - ')  # These names are in format Djokovic N.-Nadal R.
 
                 # Function call gets player names in FULL --> First Name Last Name format
-                player1_name, player2_name = get_player_names(player_names_in_reverse, player1, player2)
-                data = [item for sublist in data for item in sublist]
-                data.append(player1_name)
-                data.append(player2_name)
+                print(player1)
+                print(player2)
+                print(player_names_in_reverse)
+                if get_player_names(player_names_in_reverse, player1, player2) == 0:
+                    print("There was a problem with players names in this match")
+                    continue
+                else:
+                    player1_name, player2_name = get_player_names(player_names_in_reverse, player1, player2)
+                    data = [item for sublist in data for item in sublist]
+                    data.append(player1_name)
+                    data.append(player2_name)
+                    # The final format is given below
+                    # data = ['bookie',odd 1, odd 2, payout,initial_odd1, initial_odd2,player1name,player2name]
+                    odds_and_players.append(data)
+
             else:
                 print('We were unable to find bookie data')
+                continue
         print(len(odds_and_players))
         if save:
             with open(odds_database_name, "wb") as fp:  # Pickling
@@ -355,27 +429,31 @@ class OddsScraper(object):
             driver.quit()
 
     # Scraping the odds and a result of a finished match
-    def odds_scraper_for_a_finished_match(self, match_urls, odds_database_name, save):
+    def odds_scraper_for_a_finished_match(self, match_urls, odds_database_name, initial_odds_exist, save):
 
         # get the fuckin local path
         chromedriver = '/Users/aysekozlu/PyCharmProjects/TennisModel/chromedriver'
         driver = webdriver.Chrome(chromedriver)
         i = 0
+        init_p1_odd = 0
+        init_p2_odd = 0
         # For each match
         odds_and_players = []
         for url in match_urls:
+            print('Current URL {}'.format(url))
             data = []
             match_url = 'http://www.oddsportal.com' + url
             i = i + 1
+            print("We are on match {}".format(i))
             driver.get(match_url)
             soup = BeautifulSoup(driver.page_source, 'html.parser')  # scrape the website
 
             # Selecting odds button
-            expansion_button = WebDriverWait(driver, 10).until(
+            expansion_button = WebDriverWait(driver, 200).until(
                 EC.element_to_be_clickable((By.XPATH, '// *[ @ id = "user-header-oddsformat-expander"]')))
             expansion_button.click()
             # Selecting EU Odds
-            eu_odds_button = WebDriverWait(driver, 10).until(
+            eu_odds_button = WebDriverWait(driver, 200).until(
                 EC.element_to_be_clickable((By.XPATH, '// *[ @ id = "user-header-oddsformat"] / li[1] / a')))
             eu_odds_button.click()
 
@@ -395,21 +473,58 @@ class OddsScraper(object):
             if bookie_data is not None and final_result is not None and len(final_result) == 2:
                 if int(final_result[0]) > int(final_result[1]):
                     result = 1
-                    print(result)
+
                 else:
                     result = 0
-                    print(result)
+
                 table = bookie_data.find('table', {'class': "table-main detail-odds sortable"})  # Find the Odds Table
                 # This part is scraping a Beautiful Soup Table. Returns the odds and the bookie name for the match
                 table_body = table.find('tbody')
                 rows = table_body.find_all('tr')
+                row_counter = 0
                 for row in rows:
+                    row_counter = row_counter + 1
                     cols = row.find_all('td')
-                    cols = [ele.text.strip() for ele in cols]
-                    if 'bwin' in cols:
-                        data.append(
-                            [ele for ele in cols if ele])  # Now our list includes ['bookie',odd 1, odd 2, payout]
+                    cols_text = [ele.text.strip() for ele in cols]
 
+                    if 'bwin' in cols_text:
+                        # for event_tag in cols:
+                        # if event_tag.find("div", onmouseover=True) is not None:
+                        #  print(event_tag)
+                        # print(event_tag.find("div", onmouseover=True))
+                        if initial_odds_exist:
+                            print("The bwin odds is at {}".format(row_counter))
+                            ignored_exceptions = [EC.NoSuchElementException, EC.StaleElementReferenceException]
+
+                            wait = WebDriverWait(driver, 200, ignored_exceptions=ignored_exceptions)
+                            wait.until(EC.presence_of_element_located(
+                                (By.XPATH, "//*[@id =" + '"odds-data-table"' + "]/div[1]/table/tbody/tr[" + str(
+                                    row_counter) + "]/td[2]")))
+                            hover(driver, "//*[@id =" + '"odds-data-table"' + "]/div[1]/table/tbody/tr[" + str(
+                                row_counter) + "]/td[2]")
+                            # wait.until(EC.visibility_of_element_located(
+                            #    (By.XPATH, "//*[@id =" + '"odds-data-table"' + "]/div[1]/table/tbody/tr[8]/td[2]")))
+
+                            data_p1 = driver.find_element_by_xpath("//*[@id='tooltiptext']")
+                            init_p1_odd = float(data_p1.text.split()[-1])
+
+                            wait.until(EC.presence_of_element_located(
+                                (By.XPATH, "//*[@id =" + '"odds-data-table"' + "]/div[1]/table/tbody/tr[" + str(
+                                    row_counter) + "]/td[3]")))
+
+                            hover(driver, "//*[@id =" + '"odds-data-table"' + "]/div[1]/table/tbody/tr[" + str(
+                                row_counter) + "]/td[3]")
+
+                            data_p2 = driver.find_element_by_xpath("//*[@id='tooltiptext']")
+                            init_p2_odd = float(data_p2.text.split()[-1])
+                            print(init_p1_odd)
+                            print(init_p2_odd)
+                        data.append(
+                            [ele for ele in cols_text if ele])
+                        if initial_odds_exist:
+                            data.append([init_p1_odd,
+                                         init_p2_odd])  # ['bookie',odd 1, odd 2, payout,initial_odd1, initial_odd2]
+                #print('ali')
                 # Here we start a list of operations to get player names correctly.
                 player_url = url.strip().split(os.sep)[-2]
                 player_names_in_reverse = player_url.split('-')[:-1]  # get names from the url (they are in reverse)
@@ -423,17 +538,24 @@ class OddsScraper(object):
                     ' - ')  # These names are in format Djokovic N.-Nadal R.
 
                 # Function call gets player names in FULL --> First Name Last Name format
-                player1_name, player2_name = get_player_names(player_names_in_reverse, player1, player2)
-                data = [item for sublist in data for item in sublist]
-                data.append(player1_name)
-                data.append(player2_name)
-                data.append(result)
 
-                odds_and_players.append(data)
+                if get_player_names(player_names_in_reverse, player1, player2) == 0:
+                    print("There was a problem with players names in this match")
+                    continue
+                else:
+                    player1_name, player2_name = get_player_names(player_names_in_reverse, player1, player2)
+                    data = [item for sublist in data for item in sublist]
+                    data.append(player1_name)
+                    data.append(player2_name)
+                    data.append(result)
+                    # The final format is given below
+                    # data = ['bookie',odd 1, odd 2, payout,initial_odd1, initial_odd2,player1name,player2name,result]
+                    odds_and_players.append(data)
                 # print(odds_and_players)  # This list includes odds + player names
 
             else:
                 print('We were unable to find bookie data')
+                continue
         print(len(odds_and_players))
         if save:
             with open(odds_database_name, "wb") as fp:  # Pickling
@@ -541,27 +663,31 @@ odds_scraper.odds_scraper_for_a_finished_match(urls, "beijing_2018_odds.pkl", sa
 urls = odds_scraper.historical_tournament_odds_scraper("https://www.oddsportal.com/tennis/japan/atp-tokyo/results/",one_page=True)
 odds_scraper.odds_scraper_for_a_finished_match(urls, "tokyo_2018_odds.pkl", save=True)
 """
+"""
 # Wimbledon 2018
-
-urls = odds_scraper.historical_tournament_odds_scraper("https://www.oddsportal.com/tennis/united-kingdom/atp-wimbledon/results/",one_page=False)
-odds_scraper.odds_scraper_for_a_finished_match(urls, "wimbledon_2018_odds_v3.pkl", save=True)
-
+urls = odds_scraper.historical_tournament_odds_scraper(
+    "https://www.oddsportal.com/tennis/united-kingdom/atp-wimbledon/results/", one_page=False)
+odds_scraper.odds_scraper_for_a_finished_match(urls, "wimbledon_2018_odds_v4.pkl", initial_odds_exist=True, save=True)
+"""
+"""
+# Paris Open 2018
+urls = odds_scraper.historical_tournament_odds_scraper(
+    "https://www.oddsportal.com/tennis/france/atp-paris/results/", one_page=False)
+odds_scraper.odds_scraper_for_a_finished_match(urls, "paris_open_2018_v2.pkl", initial_odds_exist=True, save=True)
+"""
 # Auckland 2018
 """
-
 urls = odds_scraper.historical_tournament_odds_scraper("http://www.oddsportal.com/tennis/new-zealand/atp-auckland/results/",one_page=True)
 print(len(urls))
 odds_scraper.odds_scraper_for_a_finished_match(urls, "auckland_open_2018_odds_v2.pkl", save=True)
 """
 
-"""
-# Loading odds of a current tournament. US Open 2018 
-urls = odds_scraper.current_tournament_odds_scraper("http://www.oddsportal.com/tennis/usa/atp-us-open/")
+# Loading odds for US Open 2018
+urls = odds_scraper.historical_tournament_odds_scraper("https://www.oddsportal.com/tennis/usa/atp-us-open/results/",
+                                                       one_page=False)
 print(len(urls))
-odds_scraper.odds_scraper_for_future_match(urls, "us_open_2018_august22_odds.pkl", save=True)
+odds_scraper.odds_scraper_for_a_finished_match(urls, "us_open_2018_odds_v2.pkl", initial_odds_exist=True, save=True)
 
-
-"""
 """
 odds_scraper = OddsScraper()
 
@@ -574,7 +700,6 @@ flatten_urls_list = [url for l in tot_urls for url in l]
 print(len(flatten_urls_list))
 odds_scraper.odds_scraper_for_a_finished_match(flatten_urls_list,'historical_wimbledon_odds', save=True)
 """
-
 
 # odds_scraper.odds_database_search("world_tennis_odds.csv")
 
