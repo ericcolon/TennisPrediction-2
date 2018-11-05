@@ -749,7 +749,7 @@ class Models(object):
         return [feature_uncertainty_dict, y]
 
     # Trains, develops and makes predictions for Stacked generalization ensemble models
-    def train_decision_stump_model(self, dataset_name, labelset_name, number_of_features, development_mode,
+    def train_model(self, dataset_name, labelset_name, number_of_features, development_mode,
                                    prediction_mode, historical_tournament, training_mode,
                                    test_given_model, save, tournament_pickle_file_name, court_type,
                                    uncertainty_used, neural_net_model_name, using_neural_net=False,
@@ -1512,19 +1512,16 @@ DT = Models("updated_stats_v3")  # Initalize the model class with our sqlite3 ad
 #print(len(data_label[0]))
 #print(len(data_label[1]))
 
-# To create new database based on best of 2 vs best of 3 tournaments.
-# create_database_based_on_set("updated_stats_v5", 5, "updated_stats_v5_5set_matches")
-# To train and make predictions on Decision Stump Model
 
-DT.train_decision_stump_model('uncertainty_dict_v14.txt', 'label_v12_short.txt',
+DT.train_model('uncertainty_dict_v14.txt', 'label_v12_short.txt',
                               number_of_features=7,
                               development_mode=False,
                               prediction_mode=True, historical_tournament=True,
                               save=False,
                               training_mode=False,
                               test_given_model=False,
-                              tournament_pickle_file_name='wimbledon_2018_odds_v4.pkl',
-                              court_type=5, uncertainty_used=True, neural_net_model_name='ckpt.pth04adam05.tar',
+                              tournament_pickle_file_name='paris_open_2018_v2.pkl',
+                              court_type=1, uncertainty_used=True, neural_net_model_name='ckpt.pth04adam05.tar',
                               using_neural_net=True, initial_odds_used=True)
 
 # WIMBLEDON 2018

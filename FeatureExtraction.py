@@ -584,7 +584,7 @@ def create_surface_matrix(self):
             number_of_players]
 
 """
-
+print("ali")
 # RUN THIS CODE  
 # Code to create the Sqlite stats database with all the required information to create features
 """

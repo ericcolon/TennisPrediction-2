@@ -524,7 +524,7 @@ class OddsScraper(object):
                         if initial_odds_exist:
                             data.append([init_p1_odd,
                                          init_p2_odd])  # ['bookie',odd 1, odd 2, payout,initial_odd1, initial_odd2]
-
+                #print('ali')
                 # Here we start a list of operations to get player names correctly.
                 player_url = url.strip().split(os.sep)[-2]
                 player_names_in_reverse = player_url.split('-')[:-1]  # get names from the url (they are in reverse)

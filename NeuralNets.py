@@ -215,7 +215,7 @@ def make_nn_predictions(filename, tournament_pickle_file_name, x_scaled_no_dupli
         prediction_probability = prob.data.numpy()[::-1]
 
         prediction = np.argmax(prob.data.numpy())
-
+        #print("ali")
         calculated_odds_of_p1 = float(100 / prediction_probability[0] / 100)
         calculated_odds_of_p2 = float(100 / prediction_probability[1] / 100)
 
