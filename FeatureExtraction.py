@@ -47,7 +47,8 @@ class FeatureExtraction(object):
     def create_set_and_game_stats(self, table):
 
         # Find number of games and number of sets for each game in stats dataset
-        print("Before starting create_results function, the length of our database was {}".format(len(table)))
+        print(
+            "Before starting create_set_and_game_stats function, the length of our database was {}".format(len(table)))
         start_time = time.time()
         table["Number_of_games"] = ""  # Create a new column to store the number of games in  a match
         table["Number_of_sets"] = ""
@@ -60,14 +61,11 @@ class FeatureExtraction(object):
         unfinished_matches = 0
         # For each match in stats dataset
         for i in table.index:
-            print("We are creating results at index {}".format(i))
+            print("We are creating game and sets stats at index {}".format(i))
             # get player ID's and tournament ID from stats dataset
             player1_id = table.at[i, 'ID1']
             player2_id = table.at[i, 'ID2']
             tour_id = table.at[i, 'ID_T']
-
-            # our_match = self.matches[(self.matches.ID1_G == player1_id) & (self.matches.ID2_G == player2_id) & (
-            #       self.matches.ID_T_G == tour_id)]
 
             # Find the match in matches dataset.
             our_match = self.matches.loc[
@@ -296,14 +294,11 @@ class FeatureExtraction(object):
             print("We are H2H stats at index {}".format(i))
             player1 = stats.at[i, "ID1"]
             player2 = stats.at[i, "ID2"]
-            # Head to head games that Player 1 has won
-            # head_to_head_1 = matches[(matches.ID1_G == player1) & (self.matches.ID2_G == player2)]
 
             # Matches that player 1 has won
             head_to_head_1 = matches.loc[np.logical_and(matches['ID1_G'] == player1, matches['ID2_G'] == player2)]
 
-            # Head to head Games that Player 2 has won
-            # head_to_head_2 = matches[(matches.ID1_G == player2) & (self.matches.ID2_G == player1)]
+
             # Matches that player 2 has won.
             head_to_head_2 = matches.loc[np.logical_and(matches['ID1_G'] == player2, matches['ID2_G'] == player1)]
 
@@ -584,23 +579,24 @@ def create_surface_matrix(self):
             number_of_players]
 
 """
-print("ali")
+
 # RUN THIS CODE  
 # Code to create the Sqlite stats database with all the required information to create features
-"""
+
 feature_extraction = FeatureExtraction("db.sqlite")
 new_stats = feature_extraction.create_advanced_features()
 new_stats_v1 = feature_extraction.create_set_and_game_stats(new_stats)
-new_stats_v2 = feature_extraction.create_h2h_stats(new_stats_v1)
-new_stats_v3 = feature_extraction.add_court_types(new_stats_v2)
-new_stats_v4 = feature_extraction.add_match_year(new_stats_v3)
+new_stats_v2 = feature_extraction.add_court_types(new_stats_v1)
+new_stats_v3 = feature_extraction.add_match_year(new_stats_v2)
+new_stats_v4 = feature_extraction.create_h2h_stats(new_stats_v3)
+
 print(new_stats.info())
 print(new_stats_v1.info())
 print(new_stats_v2.info())
 print(new_stats_v3.info())
 print(new_stats_v4.info())
-df2sqlite_v2(new_stats_v4, 'updated_stats_v5')
-"""
+df2sqlite_v2(new_stats_v4, 'updated_stats_v6')
+
 """
 feature_extraction.extract_players()
 """

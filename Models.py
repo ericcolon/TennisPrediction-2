@@ -42,14 +42,14 @@ from NeuralNets import make_nn_predictions, NeuralNetModel
 # Ensemble
 # from mlens.ensemble import SuperLearner
 
-def read_oddsportal_data(data_file, players_file, initial_odds_used, odds_length, p1_index, p2_index, result_index):
+def read_oddsportal_data(data_file, players_file, scraping_mode, odds_length, p1_index, p2_index, result_index):
     match_to_odds_dictionary = collections.OrderedDict()
     match_to_results_dictionary = collections.OrderedDict()
     p1_list = []
     p2_list = []
     results = []
     count = 0
-    if initial_odds_used:
+    if scraping_mode == 1:
         match_to_initial_odds_dictionary = collections.OrderedDict()
         for odds in reversed(data_file):
             assert len(odds) == odds_length
@@ -76,7 +76,7 @@ def read_oddsportal_data(data_file, players_file, initial_odds_used, odds_length
         return [p1_list, p2_list, results, match_to_results_dictionary, match_to_odds_dictionary,
                 match_to_initial_odds_dictionary]
 
-    else:
+    elif scraping_mode == 2:
         for odds in reversed(data_file):
             assert len(odds) == odds_length
             p1 = odds[p1_index]
@@ -97,8 +97,29 @@ def read_oddsportal_data(data_file, players_file, initial_odds_used, odds_length
                 match_to_odds_dictionary[tuple([player1_id, player2_id])] = [odds[1], odds[2]]
 
                 match_to_results_dictionary[tuple([player1_id, player2_id])] = result
+                return [p1_list, p2_list, results, match_to_results_dictionary, match_to_odds_dictionary]
+    elif scraping_mode == 3:
+        for odds in reversed(data_file):
+            assert len(odds) == odds_length
+            p1 = odds[p1_index]
+            p2 = odds[p2_index]
+            p1_id = players_file[players_file['NAME_P'] == p1]
+            p2_id = players_file[players_file['NAME_P'] == p2]
 
-        return [p1_list, p2_list, results, match_to_results_dictionary, match_to_odds_dictionary]
+            if p1_id.empty or p2_id.empty:
+                continue
+            else:
+
+                player1_id = int(p1_id['ID_P'])
+                player2_id = int(p2_id['ID_P'])
+                p1_list.append(player1_id)
+                p2_list.append(player2_id)
+
+                match_to_odds_dictionary[tuple([player1_id, player2_id])] = [odds[1], odds[2]]
+        print(p1_list)
+        print(p2_list)
+        print(match_to_odds_dictionary)
+        return [p1_list, p2_list, match_to_odds_dictionary]
 
 
 def create_database_based_on_set(database_name, match_type, new_db_name):
@@ -526,8 +547,8 @@ class Models(object):
     # Creates the feature stats from advanced stats database
     def create_feature_set(self, feature_set_name, label_set_name, labeling_method):
         # Takes the dataset created by FeatureExtraction and calculates required features for our model.
-        # As of July 17: takes 90 minutes to complete the feature creation.
-        common_opponents_is_five = 0
+        # As of October 8: takes 40-45 minutes to complete the feature creation.
+        common_opponents_exist = 0
         start_time = time.time()
         zero_common_opponents = 0
         ten_common_opponents = 0
@@ -594,6 +615,7 @@ class Models(object):
             player2_games = self.dataset.loc[
                 np.logical_or(self.dataset.ID1 == player2_id, self.dataset.ID2 == player2_id)]
 
+            # Get required information from current column
             curr_tournament = self.dataset.at[i, "ID_T"]
             current_court_id = self.dataset.at[i, "court_type"]
             current_year = float(self.dataset.at[i, 'year'])
@@ -629,18 +651,17 @@ class Models(object):
             sb = set(opponents_of_p2)
 
             # Find common opponents that these players have faced
-            # TO DO : YOU HAVE TO ADD THE CURRENT OPPONENT IF THEY HAVE PLAYED BEFORE
             common_opponents = sa.intersection(sb)
 
             if len(common_opponents) == 0:
                 zero_common_opponents = zero_common_opponents + 1
-                continue
                 # If they have zero common opponents, we cannot get features for this match
+                continue
 
             else:
                 if len(common_opponents) > 9:
                     ten_common_opponents = ten_common_opponents + 1
-                common_opponents_is_five = common_opponents_is_five + 1
+                common_opponents_exist = common_opponents_exist + 1
                 # Find matches played against common opponents
                 player1_games_updated = [game for opponent in common_opponents for game in earlier_games_of_p1 if
                                          (player1_id == game.ID1 and opponent == game.ID2) or (
@@ -651,6 +672,7 @@ class Models(object):
 
                 weights_of_p1 = defaultdict(list)
                 weights_of_p2 = defaultdict(list)
+                # The below calculations are used to devise an uncertainty value for this match.
                 for opponent in common_opponents:
                     for game in player1_games_updated:
                         if opponent == game.ID2 or opponent == game.ID1:
@@ -673,10 +695,12 @@ class Models(object):
                                                                                      game.year))
                 sum_of_weights = 0
                 for key in weights_of_p1.keys() & weights_of_p2.keys():
-                    # print(key, weights_of_p1[key], weights_of_p2[key])
                     sum_of_weights = sum_of_weights + (sum(weights_of_p1[key]) * sum(weights_of_p2[key]))
+
+                # Using all of the weighting, we devise a overall uncertainty value
                 overall_uncertainty = 1 / sum_of_weights
 
+                # Get the difference of weighted average for each feature.
                 serveadv_1, serveadv_2, complete_1, complete_2, w1sp_1, w1sp_2, bp_1, bp_2, aces_1, aces_2, h2h_1, \
                 h2h_2, tpw1, tpw2 = self.get_average_features(player1_id, player2_id, player1_games_updated,
                                                               player2_games_updated, court_dict, current_court_id,
@@ -684,16 +708,15 @@ class Models(object):
 
                 if bp_1 == 1 or bp_1 == 0 or bp_2 == 0 or bp_2 == 1:
                     continue
-                # The first feature of our feature set is the last match on the stats dataset
 
                 if random() > 0.5:
                     # Player 1 has won. So we label it 1.
                     feature = np.array(
-                        #  [serveadv_1, complete_1, w1sp_1, aces_1, bp_1, tpw1, serveadv_2, complete_2, w1sp_2, aces_2,
-                        #  bp_2, tpw2,
+
                         [serveadv_1 - serveadv_2, complete_1 - complete_2, w1sp_1 - w1sp_2, aces_1 - aces_2,
                          bp_1 - bp_2, tpw1 - tpw2, h2h_1 - h2h_2])
 
+                    # Different label methods. Options = outcome or game spread
                     if labeling_method == 'game_spread':
                         label = int(game_spread)
                     else:
@@ -702,7 +725,6 @@ class Models(object):
                     if np.any(np.isnan(feature)):
                         continue
                     else:
-                        # print(feature.tolist() + [label])
                         feature_uncertainty_dict[tuple(feature.tolist() + [label])] = overall_uncertainty
                         x.append(feature)
                         y.append(label)
@@ -712,9 +734,6 @@ class Models(object):
                     # This is necessary because our dataset has a specific format where first player always wins.
 
                     feature = np.array(
-                        # [serveadv_2, complete_2, w1sp_2, aces_2, bp_2, tpw2, serveadv_1, complete_1, w1sp_1, aces_1,
-                        #  bp_1, tpw1, serveadv_2 - serveadv_1, complete_2 - complete_1, w1sp_2 - w1sp_1, aces_2 - aces_1,
-                        #  bp_2 - bp_1, tpw2 - tpw1, h2h_2 - h2h_1])
                         [serveadv_2 - serveadv_1, complete_2 - complete_1, w1sp_2 - w1sp_1, aces_2 - aces_1,
                          bp_2 - bp_1, tpw2 - tpw1, h2h_2 - h2h_1])
 
@@ -726,19 +745,16 @@ class Models(object):
                     if np.any(np.isnan(feature)):
                         continue
                     else:
-                        #  print(feature.tolist() + [label])
 
                         x.append(feature)
                         y.append(label)
                         feature_uncertainty_dict[tuple(feature.tolist() + [label])] = overall_uncertainty
 
-        print("{} matches had common opponents in the past".format(common_opponents_is_five))
+        print("{} matches had common opponents in the past".format(common_opponents_exist))
         print("{} matches had more than 10 common opponents in the past".format(ten_common_opponents))
         print("{} matches 0 common opponents in the past".format(zero_common_opponents))
         print("The total number of matches in our feature set is {}".format(len(x)))
         print("Time took for creating stat features for each match took--- %s seconds ---" % (time.time() - start_time))
-        # with open(feature_set_name, "wb") as fp:  # Pickling
-        # pickle.dump(x, fp)
 
         with open(label_set_name, "wb") as fp:  # Pickling
             pickle.dump(y, fp)
@@ -748,12 +764,11 @@ class Models(object):
 
         return [feature_uncertainty_dict, y]
 
-    # Trains, develops and makes predictions for Stacked generalization ensemble models
+    # Trains, develops and makes predictions for Stacked generalization ensemble and NN models
     def train_model(self, dataset_name, labelset_name, number_of_features, development_mode,
-                                   prediction_mode, historical_tournament, training_mode,
-                                   test_given_model, save, tournament_pickle_file_name, court_type,
-                                   uncertainty_used, neural_net_model_name, using_neural_net=False,
-                                   initial_odds_used=True):
+                    prediction_mode, historical_tournament, training_mode,
+                    test_given_model, save, tournament_pickle_file_name, court_type,
+                    uncertainty_used, neural_net_model_name, scraping_mode, using_neural_net=False):
         features = []
         labels = []
         fraction_of_matches = 0.4
@@ -844,27 +859,29 @@ class Models(object):
             prediction_threshold = 90
             print("We are investigating {}.".format(tournament_pickle_file_name))
             odds_file = loads_odds_into_a_list(tournament_pickle_file_name)
-            print(odds_file)
+
             self.players.ID_P = self.players.ID_P.astype(int)
             print("The initial number of games in this tournament with odds scraped is {}.".format(
                 len(odds_file)))
 
-            count = 0
-            # If we have initial odds. The resulting read operations are a bit different.
-            if initial_odds_used:
-                p1_list, p2_list, results, match_to_results_dictionary, match_to_odds_dictionary, \
-                match_to_initial_odds_dictionary = read_oddsportal_data(odds_file, self.players, True, 9, 6, 7, 8)
+            if scraping_mode == 1:  # When he have additional opening odds)
+                p1_list, p2_list, results, match_to_results_dictionary, match_to_odds_dictionary, match_to_initial_odds_dictionary = read_oddsportal_data(
+                    odds_file, self.players, scraping_mode, 9, 6, 7, 8)
 
-            else:
+            elif scraping_mode == 2:  # When we only have the final odds
                 p1_list, p2_list, results, match_to_results_dictionary, match_to_odds_dictionary = read_oddsportal_data(
-                    odds_file, self.players, False, 7, 4, 5, 6)
+                    odds_file, self.players, scraping_mode, 7, 4, 5, 6)
                 match_to_initial_odds_dictionary = OrderedDict()
 
-            print("The number of matches left after scraping the ID's of players is {}.".format(count))
-            print(len(match_to_initial_odds_dictionary))
+            else:  # Mode where we have no results and no opening odds. Scraping Mode 3
+                p1_list, p2_list, match_to_odds_dictionary = read_oddsportal_data(odds_file, self.players,
+                                                                                  scraping_mode, 6, 4, 5, 0)
+                match_to_initial_odds_dictionary = OrderedDict()
+                match_to_results_dictionary = OrderedDict()
+
             # Get the list of [match, calculated feature, calculated uncertainty] for each match
             match_features_uncertainty_list = [
-                self.make_predictions_using_DT(p1, p2, court_type, 20000, number_of_features) for i, (p1, p2) in
+                self.create_prediction_features(p1, p2, court_type, 20000, number_of_features) for i, (p1, p2) in
                 enumerate(zip(p1_list, p2_list))]
             print('When the features from prediction is first created, its size is {}'.format(
                 len(match_features_uncertainty_list)))
@@ -882,38 +899,16 @@ class Models(object):
 
                 else:
                     match_uncertainty_dict[match] = uncertainty
-            print("Ater uncertainty threshold, remaining number of matches is {}".format(
-                len(match_to_results_dictionary)))
-
-            features_from_prediction = np.asarray([element[1] for element in match_features_uncertainty_list if
-                                                   element[0] in list(match_to_results_dictionary.keys())])
-
-            """
-             odds_of_tournament = loads_odds_into_a_list(tournament_pickle_file_name)
-            print(odds_of_tournament)
-            self.players.ID_P = self.players.ID_P.astype(int)
-            print("The initial number of games in this tournament with odds scraped is {}.".format(
-                len(odds_of_tournament)))
-            count = 0
-
-            for odds in reversed(odds_of_tournament):
-                assert len(odds) == 6
-                p1 = odds[4]
-                p2 = odds[5]
-                p1_id = self.players[self.players['NAME_P'] == p1]
-                p2_id = self.players[self.players['NAME_P'] == p2]
-                if p1_id.empty or p2_id.empty:
-                    continue
-                else:
-                    count = count + 1
-                    player1_id = int(p1_id['ID_P'])
-                    player2_id = int(p2_id['ID_P'])
-                    p1_list.append(player1_id)
-                    p2_list.append(player2_id)
-                    match_to_odds_dictionary[tuple([player1_id, player2_id])] = [odds[1], odds[2]]
-                print("The number of matches left after scraping the ID's of players is {}.".format(count))
-                assert len(p1_list) == len(p2_list)
-            """
+            if scraping_mode == 3:
+                print("Ater uncertainty threshold, remaining number of matches is {}".format(
+                    len(match_to_odds_dictionary)))
+                features_from_prediction = np.asarray([element[1] for element in match_features_uncertainty_list if
+                                                       element[0] in list(match_to_odds_dictionary.keys())])
+            else:
+                print("Ater uncertainty threshold, remaining number of matches is {}".format(
+                    len(match_to_results_dictionary)))
+                features_from_prediction = np.asarray([element[1] for element in match_features_uncertainty_list if
+                                                       element[0] in list(match_to_results_dictionary.keys())])
 
             print("features_from_prediction length: {}".format(len(features_from_prediction)))
 
@@ -922,7 +917,10 @@ class Models(object):
                                                                                 standard_deviations)
 
             # Because we might have taken some results of the list
-            final_results = np.asarray([result for match, result in match_to_results_dictionary.items()])
+            if scraping_mode is not 3:
+                final_results = np.asarray([result for match, result in match_to_results_dictionary.items()])
+            else:
+                final_results = np.zeros(5)
 
             print("The Final Number of features: {}".format(len(features_from_prediction_final)))
             print("match_to_results_dictionary length: {}".format(len(match_to_results_dictionary)))
@@ -932,15 +930,24 @@ class Models(object):
             print("match_uncertainty_dict length: {}".format(len(match_uncertainty_dict)))
 
             # Sanity check
-            assert len(features_from_prediction_final) == len(match_to_results_dictionary) == len(final_results) == len(
-                match_to_odds_dictionary) == len(match_uncertainty_dict) == len(match_to_initial_odds_dictionary)
+            if scraping_mode == 1:
+                assert len(features_from_prediction_final) == len(match_to_results_dictionary) == len(
+                    final_results) == len(match_to_odds_dictionary) == len(match_uncertainty_dict) == len(
+                    match_to_initial_odds_dictionary)
+            elif scraping_mode == 2:
+                assert len(features_from_prediction_final) == len(match_to_results_dictionary) == len(
+                    final_results) == len(match_to_odds_dictionary) == len(match_uncertainty_dict)
+            else:
+                assert len(features_from_prediction_final) == len(match_to_odds_dictionary) == len(
+                    match_uncertainty_dict)
 
             if using_neural_net:
                 linear_clf = make_nn_predictions(neural_net_model_name, tournament_pickle_file_name,
                                                  x_scaled_no_duplicates, y_no_duplicates,
                                                  features_from_prediction_final, final_results,
                                                  match_to_results_dictionary, match_to_odds_dictionary, self.players,
-                                                 match_uncertainty_dict, match_to_initial_odds_dictionary)
+                                                 match_uncertainty_dict, match_to_initial_odds_dictionary,
+                                                 scraping_mode)
 
             else:
                 # WARNING: BLOWING UP THE FEATURE SPACE
@@ -1352,7 +1359,7 @@ class Models(object):
                 h2h_2, tpw1, tpw2]
 
     # Creates features for unseen data points
-    def make_predictions_using_DT(self, player1_id, player2_id, current_court_id, curr_tournament, number_of_features):
+    def create_prediction_features(self, player1_id, player2_id, current_court_id, curr_tournament, number_of_features):
 
         court_dict = collections.defaultdict(dict)
         court_dict[1][1] = float(1)  # 1 is Hardcourt
@@ -1508,21 +1515,20 @@ DT = Models("updated_stats_v3")  # Initalize the model class with our sqlite3 ad
 
 # To create the feature and label space
 
-#data_label = DT.create_feature_set('uncertainty_dict_game_spread.txt', 'label_game_spread.txt', labeling_method="game_spread")
-#print(len(data_label[0]))
-#print(len(data_label[1]))
+# data_label = DT.create_feature_set('uncertainty_dict_v15_h2h_update_game_spread.txt', 'label_v15_h2h_update_game_spread.txt',
+#                                   labeling_method="game_spread")
 
 
 DT.train_model('uncertainty_dict_v14.txt', 'label_v12_short.txt',
-                              number_of_features=7,
-                              development_mode=False,
-                              prediction_mode=True, historical_tournament=True,
-                              save=False,
-                              training_mode=False,
-                              test_given_model=False,
-                              tournament_pickle_file_name='paris_open_2018_v2.pkl',
-                              court_type=1, uncertainty_used=True, neural_net_model_name='ckpt.pth04adam05.tar',
-                              using_neural_net=True, initial_odds_used=True)
+               number_of_features=7,
+               development_mode=False,
+               prediction_mode=True, historical_tournament=True,
+               save=False,
+               training_mode=False,
+               test_given_model=False,
+               tournament_pickle_file_name='atpfinals_nov11-12.pkl',
+               court_type=1, uncertainty_used=True, neural_net_model_name='ckpt.pth04adam05.tar', scraping_mode=3,
+               using_neural_net=True)
 
 # WIMBLEDON 2018
 """

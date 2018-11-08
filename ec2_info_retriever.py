@@ -84,40 +84,43 @@ for instance_id, instance in ec2info.items():
 
 """
 
+      
+        matches = self.unfiltered_matches
+        start_time = time.time()
+        stats["H12H"] = ""
+        stats["H21H"] = ""
+        for i in reversed(stats.index):
+            print("We are H2H stats at index {}".format(i))
+            player1 = stats.at[i, "ID1"]
+            player2 = stats.at[i, "ID2"]
+            curr_tournament = int(stats.at[i, "ID_T"])
 
-def test_final_results(result_file, odds_file, length_of_guesses):
-    with open(result_file, 'rb') as handle:
-        dict_of_results = pickle.load(handle)
+            # Matches that player 1 has won
+            head_to_head_1 = matches.loc[np.logical_and(matches['ID1_G'] == player1, matches['ID2_G'] == player2)]
 
-    with open(odds_file, 'rb') as handle:
-        odds = pickle.load(handle)
+            # Head to head Games that Player 2 has won
+            head_to_head_2 = matches.loc[np.logical_and(matches['ID1_G'] == player2, matches['ID2_G'] == player1)]
 
-    print(dict_of_results)
-    print(odds)
-    count = 0
-    correct = 0
-    for match, res in dict_of_results.items():
+            # Games played earlier than the current tournament we are investigating
+            earlier_games_of_p1 = [game for game in head_to_head_1.itertuples() if int(game.ID_T_G) < curr_tournament]
 
-        if len(res) > length_of_guesses:
-            most_common_result = most_common(res)
-            print(res)
-            print(res.count(most_common_result) / len(res))
-            if (res.count(most_common_result) / len(res)) < 0.70:
-                continue
+            earlier_games_of_p2 = [game for game in head_to_head_2.itertuples() if int(game.ID_T_G) < curr_tournament]
+            player_1_wins = len(earlier_games_of_p1)
+            player_2_wins = len(earlier_games_of_p2)
+            if player_1_wins == 0 and player_2_wins == 0:
+                h12h = 0
+                h21h = 0
             else:
-                if match not in odds:
-                    continue
-                else:
-                    count = count + 1
-                    odd = odds[match]
 
-                    print(
-                        "Prediction for match {} was {}. The result was {}. The odds were {}.The odds we chose to bet was {}"
-                            .format(match, most_common_result, odd[1], odd[3],
-                                    odd[3][abs(int(most_common_result) - 1)]))
-                    if most_common_result == odd[1]:
-                        correct = correct + 1
-    print(correct)
-    print(count)
-    print(correct / count)
+                h12h = player_1_wins / (player_2_wins + player_1_wins)
+                h21h = player_2_wins / (player_1_wins + player_2_wins)
+
+            stats.at[i, "H12H"] = str(h12h)
+            stats.at[i, "H21H"] = str(h21h)
+
+        # print("Number of invalid matches is {}.".format(invalid))
+        print("Time took for creating head to head features for each match took--- %s seconds ---" % (
+                time.time() - start_time))
+        stats_final = stats.reset_index(drop=True)  # reset indexes if any more rows are dropped
+
 """

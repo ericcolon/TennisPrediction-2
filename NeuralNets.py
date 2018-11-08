@@ -15,6 +15,14 @@ import math
 from torch.autograd import Variable
 
 
+def american_to_decimal(american_odd):
+    if int(american_odd) > 0:
+        american_odd = float(american_odd / 100) + 1
+    else:
+        american_odd = float(abs(100 / american_odd)) + 1
+    return american_odd
+
+
 # I Overwrite this class from torchsample. The one at torch sample does not work for multi class outputs.
 class Binary_Classification(torchsample.metrics.BinaryAccuracy):
     def __call__(self, y_pred, y_true):
@@ -147,7 +155,7 @@ def step_decay(epoch, initial_rate):
 
 # To switch from Variable into numpy for testing
 def resize_label_arrays(y_pred_torch, y):
-    prob = F.softmax(y_pred_torch, dim=1)
+    # prob = F.softmax(y_pred_torch, dim=1)
     y_pred_np = y_pred_torch.data.numpy()
     pred_np = np.argmax(y_pred_np, axis=1)
     pred_np = np.reshape(pred_np, len(pred_np), order='F').reshape((len(pred_np), 1))
@@ -175,18 +183,27 @@ def calculate_roc_score(y, y_pred, train):
 
 def make_nn_predictions(filename, tournament_pickle_file_name, x_scaled_no_duplicates, y_no_duplicates,
                         features_from_prediction_final, final_results, match_to_results_dictionary,
-                        match_to_odds_dictionary, players, match_uncertainty_dict, match_to_initial_odds_dictionary):
+                        match_to_odds_dictionary, players, match_uncertainty_dict, match_to_initial_odds_dictionary,
+                        scraping_mode):
+    # Variables
     bet_amount = 10
     total_winnings = 0
     count = 0
     correct = 0
-    tournament_name = "Wimbledon_2018_model_results_with_initial_odds.txt\n"
+    tournament_name = "ATP_Finals_Nov11-12_predictions.txt\n"
     f = open(tournament_name, "w+")
-    match_to_results_list = list(match_to_results_dictionary.items())  # get list of matches
 
+    if scraping_mode == 1:
+        match_to_results_list = list(match_to_results_dictionary.items())  # get list of matches
+    else:
+        match_to_results_list = []
+    match_to_odds_list = list(match_to_odds_dictionary.items())  # get list of matches
+
+    # Load the model
     linear_clf = Net(7, 128, 2)
     linear_clf.load_state_dict(torch.load(filename))  # 'ckpt.pth02.tar'
 
+    # Write training and test accuracy to text file
     y_pred, y_test = resize_prediction_arrays(
         linear_clf(Variable(torch.from_numpy(x_scaled_no_duplicates).float())), y_no_duplicates)
     print("Training accuracy {}\n".format(float(np.count_nonzero(y_pred == y_test)) / float(len(y_test))))
@@ -195,117 +212,174 @@ def make_nn_predictions(filename, tournament_pickle_file_name, x_scaled_no_dupli
     f.write(tournament_name)
     f.write("Training accuracy {}\n".format(float(np.count_nonzero(y_pred == y_test)) / float(len(y_test))))
 
-    y_pred, y_test = resize_prediction_arrays(
-        linear_clf(Variable(torch.from_numpy(features_from_prediction_final).float())), final_results)
-    print("Prediction accuracy {}".format(float(np.count_nonzero(y_pred == y_test)) / float(len(y_test))))
-    f.write("Prediction accuracy {}\n".format(float(np.count_nonzero(y_pred == y_test)) / float(len(y_test))))
+    # If we have results + opening odds + final odds
+    if scraping_mode == 1:
+        y_pred, y_test = resize_prediction_arrays(
+            linear_clf(Variable(torch.from_numpy(features_from_prediction_final).float())), final_results)
+        print("Prediction accuracy {}".format(float(np.count_nonzero(y_pred == y_test)) / float(len(y_test))))
+        f.write("Prediction accuracy {}\n".format(float(np.count_nonzero(y_pred == y_test)) / float(len(y_test))))
+        calculate_roc_score(y_test, y_pred, 'test')
+        for i, (feature, result) in enumerate(zip(features_from_prediction_final, final_results)):
 
-    calculate_roc_score(y_test, y_pred, 'test')
+            class_predictions = linear_clf(Variable(torch.from_numpy(feature).float()))
 
-    for i, (feature, result) in enumerate(zip(features_from_prediction_final, final_results)):
-        # USING SIMPLE FEED FORWARD NEURAL NETWORK
-        # print(feature.shape)
-        # print(feature.reshape(1, -1).shape)
-        class_predictions = linear_clf(Variable(torch.from_numpy(feature).float()))
-        # print(class_predictions)
-        # print(class_predictions.shape)
-        prob = F.softmax(class_predictions, dim=0)
+            prob = F.softmax(class_predictions, dim=0)
 
-        # print(type(prob.data.numpy()))
-        prediction_probability = prob.data.numpy()[::-1]
+            prediction_probability = prob.data.numpy()[::-1]
 
-        prediction = np.argmax(prob.data.numpy())
-        #print("ali")
-        calculated_odds_of_p1 = float(100 / prediction_probability[0] / 100)
-        calculated_odds_of_p2 = float(100 / prediction_probability[1] / 100)
+            prediction = np.argmax(prob.data.numpy())
+            calculated_odds_of_p1 = float(100 / prediction_probability[0] / 100)
+            calculated_odds_of_p2 = float(100 / prediction_probability[1] / 100)
 
-        match = match_to_results_list[i][0]  # can do this because everything is ordered
-        odds = match_to_odds_dictionary[tuple(match)]
-        initial_bookmaker_odds = match_to_initial_odds_dictionary[tuple(match)]
-        uncertainty = match_uncertainty_dict[tuple(match)]
-        total_bookmaker_prob = (1 / float(odds[0])) + (1 / float(odds[1]))
-        bias = abs(1 - total_bookmaker_prob) / 2
+            match = match_to_results_list[i][0]  # can do this because everything is ordered
+            odds = match_to_odds_dictionary[tuple(match)]
+            initial_bookmaker_odds = match_to_initial_odds_dictionary[tuple(match)]
+            uncertainty = match_uncertainty_dict[tuple(match)]
+            total_bookmaker_prob = (1 / float(odds[0])) + (1 / float(odds[1]))
+            bias = abs(1 - total_bookmaker_prob) / 2
 
-        initial_bias = abs(1- ((1 / float(initial_bookmaker_odds[0])) + (1 / float(initial_bookmaker_odds[1])))) /2
+            initial_bias = abs(
+                1 - ((1 / float(initial_bookmaker_odds[0])) + (1 / float(initial_bookmaker_odds[1])))) / 2
 
-        if result == prediction:
+            if result == prediction:
 
-            if abs(float(odds[abs(int(prediction) - 1)])) < 20:
-                correct = correct + 1
+                if abs(float(odds[abs(int(prediction) - 1)])) < 20:
+                    correct = correct + 1
+                    count = count + 1
+                    total_winnings = total_winnings + (
+                            bet_amount * float(odds[abs(int(prediction) - 1)]))
+            else:
                 count = count + 1
-                total_winnings = total_winnings + (
-                        bet_amount * float(odds[abs(int(prediction) - 1)]))
-        else:
-            count = count + 1
-            total_winnings = total_winnings - bet_amount
+                total_winnings = total_winnings - bet_amount
 
-        # print("Our total winnings so far is {}".format(total_winnings))
-        player1 = players[players['ID_P'] == list(match)[0]].iloc[0]['NAME_P']
-        player2 = players[players['ID_P'] == list(match)[1]].iloc[0]['NAME_P']
-        f.write("MATCH NUMBER {}. Uncertainty: {}\n".format(i, uncertainty))
-        if (uncertainty < 0.2):
-            f.write("This uncertainty means the quality of match features is GOOD.\n".format(i, uncertainty))
-        else:
-            f.write("This uncertainty means the quality of match features is NOT GOOD.\n".format(i, uncertainty))
+            # print("Our total winnings so far is {}".format(total_winnings))
+            player1 = players[players['ID_P'] == list(match)[0]].iloc[0]['NAME_P']
+            player2 = players[players['ID_P'] == list(match)[1]].iloc[0]['NAME_P']
+            f.write("MATCH NUMBER {}. Uncertainty: {}\n".format(i, uncertainty))
+            if (uncertainty < 0.2):
+                f.write("This uncertainty means the quality of match features is GOOD.\n".format(i, uncertainty))
+            else:
+                f.write("This uncertainty means the quality of match features is NOT GOOD.\n".format(i, uncertainty))
 
-        match_analysis = "Prediction for match {} - {} was {}. The result was {}.".format(
-            player1, player2, prediction, result)
-        our_probabilities = "The calculated model probabilities: \n{} : {:.2f} and {} : {:.2f}.".format(player1,
-                                                                                                        prediction_probability[
-                                                                                                            0],
-                                                                                                        player2,
-                                                                                                        prediction_probability[
-                                                                                                            1])
-        our_decimal_odds = "Converting our implied probability into decimal odds, model calculates odds as: \n{} :" \
-                           " {:.2f} and {} : {:.2f}. ".format(player1, calculated_odds_of_p1, player2,
-                                                              calculated_odds_of_p2)
-        print(match_analysis)
-        print(our_probabilities)
-        print(our_decimal_odds)
-        bookmaker_odds = "The bookmakers final odds were: \n{} : {} and {} : {}".format(
-            player1, odds[0], player2, odds[1])
+            match_analysis = "Prediction for match {} - {} was {}. The result was {}.".format(
+                player1, player2, prediction, result)
+            our_probabilities = "The calculated model probabilities: \n{} : {:.2f} and {} : {:.2f}.".format(player1,
+                                                                                                            prediction_probability[
+                                                                                                                0],
+                                                                                                            player2,
+                                                                                                            prediction_probability[
+                                                                                                                1])
+            our_decimal_odds = "Converting our implied probability into decimal odds, model calculates odds as: \n{} :" \
+                               " {:.2f} and {} : {:.2f}. ".format(player1, calculated_odds_of_p1, player2,
+                                                                  calculated_odds_of_p2)
+            print(match_analysis)
+            print(our_probabilities)
+            print(our_decimal_odds)
+            bookmaker_odds = "The bookmakers final odds were: \n{} : {} and {} : {}".format(
+                player1, odds[0], player2, odds[1])
 
-        bookmaker_odds_initially = "The bookmakers initial (starting) odds were: \n{} : {} and {} : {}".format(
-            player1, initial_bookmaker_odds[0], player2, initial_bookmaker_odds[1])
+            bookmaker_odds_initially = "The bookmakers initial (starting) odds were: \n{} : {} and {} : {}".format(
+                player1, initial_bookmaker_odds[0], player2, initial_bookmaker_odds[1])
 
-        print(bookmaker_odds)
-        bookmaker_probabilities = "The final bookmaker probabilities  are: \n{} : " \
-                                  "{:.2f} and {} : {:.2f}.".format(player1, (1 / (float(odds[0])) - bias), player2,
-                                                                   (1 / (float(odds[1])) - bias))
-        bookmaker_probabilities_initially = "The initial bookmaker probabilities  are: \n{} : " \
-                                  "{:.2f} and {} : {:.2f}.".format(player1, (1 / (float(initial_bookmaker_odds[0])) - initial_bias), player2,
-                                                                   (1 / (float(initial_bookmaker_odds[1])) - initial_bias))
+            print(bookmaker_odds)
+            bookmaker_probabilities = "The final bookmaker probabilities  are: \n{} : " \
+                                      "{:.2f} and {} : {:.2f}.".format(player1, (1 / (float(odds[0])) - bias), player2,
+                                                                       (1 / (float(odds[1])) - bias))
+            bookmaker_probabilities_initially = "The initial bookmaker probabilities  are: \n{} : " \
+                                                "{:.2f} and {} : {:.2f}.".format(player1, (
+                    1 / (float(initial_bookmaker_odds[0])) - initial_bias), player2,
+                                                                                 (1 / (float(initial_bookmaker_odds[
+                                                                                                 1])) - initial_bias))
 
-        print(bookmaker_probabilities)
+            print(bookmaker_probabilities)
 
-        odds_chosen = "The odds we chose to bet was {}\n".format(odds[abs(int(prediction) - 1)])
+            odds_chosen = "The odds we chose to bet was {}\n".format(odds[abs(int(prediction) - 1)])
 
-        print(odds_chosen)
-        # Write the results to a text file
-        f.write("Our Prediction and result" + "\n")
-        f.write(match_analysis + "\n" + "\n")
+            print(odds_chosen)
+            # Write the results to a text file
+            f.write("Our Prediction and result" + "\n")
+            f.write(match_analysis + "\n" + "\n")
 
-        f.write("INITIAL bookmaker odds and probabilities:" + "\n")
-        f.write(bookmaker_odds_initially + "\n")
-        f.write(bookmaker_probabilities_initially + "\n" + "\n")
+            f.write("INITIAL bookmaker odds and probabilities:" + "\n")
+            f.write(bookmaker_odds_initially + "\n")
+            f.write(bookmaker_probabilities_initially + "\n" + "\n")
 
-        f.write("FINAL bookmaker odds and probabilities:" + "\n")
-        f.write(bookmaker_odds + "\n")
-        f.write(bookmaker_probabilities + "\n" + "\n")
+            f.write("FINAL bookmaker odds and probabilities:" + "\n")
+            f.write(bookmaker_odds + "\n")
+            f.write(bookmaker_probabilities + "\n" + "\n")
 
-        f.write("MODEL odds and probabilities:" + "\n")
-        f.write(our_probabilities + "\n")
-        f.write(our_decimal_odds + "\n")
+            f.write("MODEL odds and probabilities:" + "\n")
+            f.write(our_probabilities + "\n")
+            f.write(our_decimal_odds + "\n")
 
-        f.write(odds_chosen + "\n")
+            f.write(odds_chosen + "\n")
 
-    f.write("Total amount of bets we made is: {}\n".format(bet_amount * count))
-    f.write("Total Winnings: {}\n".format(total_winnings))
-    ROI = (total_winnings - (bet_amount * count)) / (bet_amount * count) * 100
-    f.write("Our ROI for {} was: {}.\n".format(tournament_pickle_file_name, ROI))
-    f.write("Accuracy over max probability and with odd threshold is {}.\n".format(correct / count))
+        f.write("Total amount of bets we made is: {}\n".format(bet_amount * count))
+        f.write("Total Winnings: {}\n".format(total_winnings))
+        ROI = (total_winnings - (bet_amount * count)) / (bet_amount * count) * 100
+        f.write("Our ROI for {} was: {}.\n".format(tournament_pickle_file_name, ROI))
+        f.write("Accuracy over max probability and with odd threshold is {}.\n".format(correct / count))
 
-    # Convert text file to pdf
+    else:
+        for i, (feature, odd) in enumerate(zip(features_from_prediction_final, match_to_odds_list)):
+            class_predictions = linear_clf(Variable(torch.from_numpy(feature).float()))
+
+            # Calculating model's decimal odds from the class prediction probabilities
+            prob = F.softmax(class_predictions, dim=0)
+            prediction_probability = prob.data.numpy()[::-1]
+            prediction = np.argmax(prob.data.numpy())
+            calculated_odds_of_p1 = float(100 / prediction_probability[0] / 100)
+            calculated_odds_of_p2 = float(100 / prediction_probability[1] / 100)
+            match = match_to_odds_list[i][0]  # can do this because everything is ordered
+            odds = match_to_odds_dictionary[tuple(match)]
+            uncertainty = match_uncertainty_dict[tuple(match)]
+
+            # Convert American to decimal odd if necessary:
+            if abs(float(odds[0])) > 20:
+                odds[0] = str(american_to_decimal(float(odds[0])))
+            if abs(float(odds[1])) > 20:
+                odds[1] = str(american_to_decimal(float(odds[1])))
+
+            total_bookmaker_prob = (1 / float(odds[0])) + (1 / float(odds[1]))
+            bias = abs(1 - total_bookmaker_prob) / 2
+            player1 = players[players['ID_P'] == list(match)[0]].iloc[0]['NAME_P']
+            player2 = players[players['ID_P'] == list(match)[1]].iloc[0]['NAME_P']
+
+            # For each match use above variables to write the analysis below.
+            f.write("MATCH NUMBER {}. Uncertainty: {}\n".format(i, uncertainty))
+            if (uncertainty < 0.2):
+                f.write("This uncertainty means the quality of match features is GOOD.\n".format(i, uncertainty))
+            else:
+                f.write("This uncertainty means the quality of match features is NOT GOOD.\n".format(i, uncertainty))
+
+            match_analysis = "Prediction for match {} - {} is {}.".format(player1, player2, prediction)
+
+            our_probabilities = "The calculated model probabilities: \n{} : {:.2f} and {} : {:.2f}.".format(player1,
+                                                                                                            prediction_probability[
+                                                                                                                0],
+                                                                                                            player2,
+                                                                                                            prediction_probability[
+                                                                                                                1])
+            our_decimal_odds = "Converting our implied probability into decimal odds, model calculates odds as: \n{} :" \
+                               " {:.2f} and {} : {:.2f}. ".format(player1, calculated_odds_of_p1, player2,
+                                                                  calculated_odds_of_p2)
+
+            final_bookmaker_odds = "The bookmakers final odds were: \n{} : {} and {} : {}".format(
+                player1, odds[0], player2, odds[1])
+
+            final_bookmaker_probabilities = "The final bookmaker probabilities  are: \n{} : " \
+                                            "{:.2f} and {} : {:.2f}.".format(player1, (1 / (float(odds[0])) - bias),
+                                                                             player2,
+                                                                             (1 / (float(odds[1])) - bias))
+
+            f.write("Our Prediction" + "\n")
+            f.write(match_analysis + "\n" + "\n")
+            f.write("Initial bookmaker odds and probabilities:" + "\n")
+            f.write(final_bookmaker_odds + "\n")
+            f.write(final_bookmaker_probabilities + "\n" + "\n")
+            f.write("MODEL odds and probabilities:" + "\n")
+            f.write(our_probabilities + "\n")
+            f.write(our_decimal_odds + "\n")
 
     return linear_clf
 
@@ -362,8 +436,8 @@ class NeuralNetModel(object):
     def train_nn_net_with_torchsample(self, feature_size, batch_size):
         model = Net(feature_size, 128, 2)
         # lr=0.1, momentum=0.55
-        optimizer = optim.SGD(model.parameters(), lr=0.02, momentum=0.8, nesterov=True)
-
+        # optimizer = optim.SGD(model.parameters(), lr=0.02, momentum=0.8, nesterov=True)
+        optimizer = optim.Adagrad(model.parameters(), lr=0.02)
         # optimizer = optim.Adam(model.parameters(), lr=0.00005) # good alternative for threshold = 0.1
         # optimizer = optim.Adam(model.parameters(), lr=0.00015) # better alternative for threshold = 0.15
         # optimizer = optim.Adagrad(model.parameters(), lr=0.0025)  # better alternative for threshold = 0.15
