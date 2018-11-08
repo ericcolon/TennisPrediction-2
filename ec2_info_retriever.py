@@ -84,40 +84,43 @@ for instance_id, instance in ec2info.items():
 
 """
 
+      
         matches = self.unfiltered_matches
         start_time = time.time()
-        invalid = 0
         stats["H12H"] = ""
         stats["H21H"] = ""
-        for i in stats.index:
+        for i in reversed(stats.index):
             print("We are H2H stats at index {}".format(i))
             player1 = stats.at[i, "ID1"]
             player2 = stats.at[i, "ID2"]
-            # Head to head games that Player 1 has won
-            # head_to_head_1 = matches[(matches.ID1_G == player1) & (self.matches.ID2_G == player2)]
+            curr_tournament = int(stats.at[i, "ID_T"])
 
             # Matches that player 1 has won
             head_to_head_1 = matches.loc[np.logical_and(matches['ID1_G'] == player1, matches['ID2_G'] == player2)]
 
             # Head to head Games that Player 2 has won
-            # head_to_head_2 = matches[(matches.ID1_G == player2) & (self.matches.ID2_G == player1)]
-            # Matches that player 2 has won.
             head_to_head_2 = matches.loc[np.logical_and(matches['ID1_G'] == player2, matches['ID2_G'] == player1)]
 
-            player_1_wins = len(head_to_head_1)
-            player_2_wins = len(head_to_head_2)
+            # Games played earlier than the current tournament we are investigating
+            earlier_games_of_p1 = [game for game in head_to_head_1.itertuples() if int(game.ID_T_G) < curr_tournament]
+
+            earlier_games_of_p2 = [game for game in head_to_head_2.itertuples() if int(game.ID_T_G) < curr_tournament]
+            player_1_wins = len(earlier_games_of_p1)
+            player_2_wins = len(earlier_games_of_p2)
             if player_1_wins == 0 and player_2_wins == 0:
-                invalid = invalid + 1
-                continue
-            h12h = player_1_wins / (player_2_wins + player_1_wins)
-            h21h = player_2_wins / (player_1_wins + player_2_wins)
+                h12h = 0
+                h21h = 0
+            else:
+
+                h12h = player_1_wins / (player_2_wins + player_1_wins)
+                h21h = player_2_wins / (player_1_wins + player_2_wins)
+
             stats.at[i, "H12H"] = str(h12h)
             stats.at[i, "H21H"] = str(h21h)
 
-        print("Number of invalid matches is {}.".format(invalid))
+        # print("Number of invalid matches is {}.".format(invalid))
         print("Time took for creating head to head features for each match took--- %s seconds ---" % (
                 time.time() - start_time))
         stats_final = stats.reset_index(drop=True)  # reset indexes if any more rows are dropped
-
 
 """

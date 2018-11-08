@@ -47,7 +47,8 @@ class FeatureExtraction(object):
     def create_set_and_game_stats(self, table):
 
         # Find number of games and number of sets for each game in stats dataset
-        print("Before starting create_results function, the length of our database was {}".format(len(table)))
+        print(
+            "Before starting create_set_and_game_stats function, the length of our database was {}".format(len(table)))
         start_time = time.time()
         table["Number_of_games"] = ""  # Create a new column to store the number of games in  a match
         table["Number_of_sets"] = ""
@@ -60,14 +61,11 @@ class FeatureExtraction(object):
         unfinished_matches = 0
         # For each match in stats dataset
         for i in table.index:
-            print("We are creating results at index {}".format(i))
+            print("We are creating game and sets stats at index {}".format(i))
             # get player ID's and tournament ID from stats dataset
             player1_id = table.at[i, 'ID1']
             player2_id = table.at[i, 'ID2']
             tour_id = table.at[i, 'ID_T']
-
-            # our_match = self.matches[(self.matches.ID1_G == player1_id) & (self.matches.ID2_G == player2_id) & (
-            #       self.matches.ID_T_G == tour_id)]
 
             # Find the match in matches dataset.
             our_match = self.matches.loc[
@@ -289,39 +287,32 @@ class FeatureExtraction(object):
 
         matches = self.unfiltered_matches
         start_time = time.time()
+        invalid = 0
         stats["H12H"] = ""
         stats["H21H"] = ""
-        for i in reversed(stats.index):
+        for i in stats.index:
             print("We are H2H stats at index {}".format(i))
             player1 = stats.at[i, "ID1"]
             player2 = stats.at[i, "ID2"]
-            curr_tournament = stats.at[i, "ID_T"]
 
             # Matches that player 1 has won
             head_to_head_1 = matches.loc[np.logical_and(matches['ID1_G'] == player1, matches['ID2_G'] == player2)]
 
-            # Head to head Games that Player 2 has won
+
+            # Matches that player 2 has won.
             head_to_head_2 = matches.loc[np.logical_and(matches['ID1_G'] == player2, matches['ID2_G'] == player1)]
 
-            # Games played earlier than the current tournament we are investigating
-            earlier_games_of_p1 = [game for game in head_to_head_1.itertuples() if game.ID_T < curr_tournament]
-
-            earlier_games_of_p2 = [game for game in head_to_head_2.itertuples() if game.ID_T < curr_tournament]
-
-            player_1_wins = len(earlier_games_of_p1)
-            player_2_wins = len(earlier_games_of_p2)
+            player_1_wins = len(head_to_head_1)
+            player_2_wins = len(head_to_head_2)
             if player_1_wins == 0 and player_2_wins == 0:
-                h12h = 0
-                h21h = 0
-            else:
-
-                h12h = player_1_wins / (player_2_wins + player_1_wins)
-                h21h = player_2_wins / (player_1_wins + player_2_wins)
-
+                invalid = invalid + 1
+                continue
+            h12h = player_1_wins / (player_2_wins + player_1_wins)
+            h21h = player_2_wins / (player_1_wins + player_2_wins)
             stats.at[i, "H12H"] = str(h12h)
             stats.at[i, "H21H"] = str(h21h)
 
-        # print("Number of invalid matches is {}.".format(invalid))
+        print("Number of invalid matches is {}.".format(invalid))
         print("Time took for creating head to head features for each match took--- %s seconds ---" % (
                 time.time() - start_time))
         stats_final = stats.reset_index(drop=True)  # reset indexes if any more rows are dropped

@@ -320,7 +320,7 @@ class OddsScraper(object):
         print("Number of matches: {}. For tournament {}.".format(len(flat_list), url.split(os.sep)[-3]))
         return flat_list
 
-    # Scraping the odds of a future match
+    # Scraping the odds of a future match, Only difference is we do not have results
     def odds_scraper_for_future_match(self, match_urls, odds_database_name, save, initial_odds_exist):
         chromedriver = '/Users/aysekozlu/PyCharmProjects/TennisModel/chromedriver'
         driver = webdriver.Chrome(chromedriver)
@@ -349,24 +349,7 @@ class OddsScraper(object):
 
             bookie_data = detectBookieData(soup)
 
-            final_result = soup.find('p', class_='result')
-
-            if final_result is not None:
-                final_result = final_result.strong.get_text()
-            else:
-                print("The final result was not accessible for this match, therefore we skip it.")
-                continue
-
-            final_result = final_result.split(':') if final_result != u'' else ['']
-            print(final_result)
-
-            if bookie_data is not None and final_result is not None and len(final_result) == 2:
-                if int(final_result[0]) > int(final_result[1]):
-                    result = 1
-
-                else:
-                    result = 0
-
+            if bookie_data is not None:
                 table = bookie_data.find('table', {'class': "table-main detail-odds sortable"})  # Find the Odds Table
                 # This part is scraping a Beautiful Soup Table. Returns the odds and the bookie name for the match
                 table_body = table.find('tbody')
@@ -378,10 +361,7 @@ class OddsScraper(object):
                     cols_text = [ele.text.strip() for ele in cols]
 
                     if 'bwin' in cols_text:
-                        # for event_tag in cols:
-                        # if event_tag.find("div", onmouseover=True) is not None:
-                        #  print(event_tag)
-                        # print(event_tag.find("div", onmouseover=True))
+
                         if initial_odds_exist:
                             print("The bwin odds is at {}".format(row_counter))
                             ignored_exceptions = [EC.NoSuchElementException, EC.StaleElementReferenceException]
@@ -392,8 +372,6 @@ class OddsScraper(object):
                                     row_counter) + "]/td[2]")))
                             hover(driver, "//*[@id =" + '"odds-data-table"' + "]/div[1]/table/tbody/tr[" + str(
                                 row_counter) + "]/td[2]")
-                            # wait.until(EC.visibility_of_element_located(
-                            #    (By.XPATH, "//*[@id =" + '"odds-data-table"' + "]/div[1]/table/tbody/tr[8]/td[2]")))
 
                             data_p1 = driver.find_element_by_xpath("//*[@id='tooltiptext']")
                             init_p1_odd = float(data_p1.text.split()[-1])
@@ -413,16 +391,15 @@ class OddsScraper(object):
                             [ele for ele in cols_text if ele])
                         if initial_odds_exist:
                             data.append([init_p1_odd,
-                                         init_p2_odd])  # ['bookie',odd 1, odd 2, payout,initial_odd1, initial_odd2]
-                # print('ali')
-                # Here we start a list of operations to get player names correctly.
+                                         init_p2_odd])
+
+                            # Here we start a list of operations to get player names correctly.
                 player_url = url.strip().split(os.sep)[-2]
                 player_names_in_reverse = player_url.split('-')[:-1]  # get names from the url (they are in reverse)
 
                 print("These are player names I got from url {}".format(player_names_in_reverse))
                 content = soup.find('div', id='col-content')
                 content.span.extract()
-                # all_result = content.find('p', class_='result').get_text()
 
                 player1, player2 = content.h1.get_text().lower().split(
                     ' - ')  # These names are in format Djokovic N.-Nadal R.
@@ -437,11 +414,9 @@ class OddsScraper(object):
                     data = [item for sublist in data for item in sublist]
                     data.append(player1_name)
                     data.append(player2_name)
-                    data.append(result)
-                    # The final format is given below
-                    # data = ['bookie',odd 1, odd 2, payout,initial_odd1, initial_odd2,player1name,player2name,result]
+
+                    # data = ['bookie',odd 1, odd 2, payout,player1name,player2name]
                     odds_and_players.append(data)
-                # print(odds_and_players)  # This list includes odds + player names
 
             else:
                 print('We were unable to find bookie data')
@@ -452,6 +427,7 @@ class OddsScraper(object):
                 pickle.dump(odds_and_players, fp)
 
             driver.quit()
+
     # Scraping the odds and a result of a finished match
     def odds_scraper_for_a_finished_match(self, match_urls, odds_database_name, initial_odds_exist, save):
 
@@ -548,7 +524,7 @@ class OddsScraper(object):
                         if initial_odds_exist:
                             data.append([init_p1_odd,
                                          init_p2_odd])  # ['bookie',odd 1, odd 2, payout,initial_odd1, initial_odd2]
-                #print('ali')
+                # print('ali')
                 # Here we start a list of operations to get player names correctly.
                 player_url = url.strip().split(os.sep)[-2]
                 player_names_in_reverse = player_url.split('-')[:-1]  # get names from the url (they are in reverse)
@@ -705,12 +681,20 @@ urls = odds_scraper.historical_tournament_odds_scraper("http://www.oddsportal.co
 print(len(urls))
 odds_scraper.odds_scraper_for_a_finished_match(urls, "auckland_open_2018_odds_v2.pkl", save=True)
 """
-
+"""
 # Loading odds for US Open 2018
 urls = odds_scraper.historical_tournament_odds_scraper("https://www.oddsportal.com/tennis/usa/atp-us-open/results/",
                                                        one_page=False)
 print(len(urls))
 odds_scraper.odds_scraper_for_a_finished_match(urls, "us_open_2018_odds_v2.pkl", initial_odds_exist=True, save=True)
+"""
+
+# Loading odds for ATP Finals Nov11-12
+# Loading odds for US Open 2018
+urls = odds_scraper.historical_tournament_odds_scraper("https://www.oddsportal.com/tennis/world/atp-finals-london/",
+                                                       one_page=True)
+print(len(urls))
+odds_scraper.odds_scraper_for_future_match(urls, "atpfinals_nov11-12.pkl", initial_odds_exist=False, save=True)
 
 """
 odds_scraper = OddsScraper()
