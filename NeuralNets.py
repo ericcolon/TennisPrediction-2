@@ -15,6 +15,14 @@ import math
 from torch.autograd import Variable
 
 
+def american_to_decimal(american_odd):
+    if int(american_odd) > 0:
+        american_odd = float(american_odd / 100) + 1
+    else:
+        american_odd = float(abs(100 / american_odd)) + 1
+    return american_odd
+
+
 # I Overwrite this class from torchsample. The one at torch sample does not work for multi class outputs.
 class Binary_Classification(torchsample.metrics.BinaryAccuracy):
     def __call__(self, y_pred, y_true):
@@ -325,6 +333,13 @@ def make_nn_predictions(filename, tournament_pickle_file_name, x_scaled_no_dupli
             match = match_to_odds_list[i][0]  # can do this because everything is ordered
             odds = match_to_odds_dictionary[tuple(match)]
             uncertainty = match_uncertainty_dict[tuple(match)]
+
+            # Convert American to decimal odd if necessary:
+            if abs(float(odds[0])) > 20:
+                odds[0] = str(american_to_decimal(float(odds[0])))
+            if abs(float(odds[1])) > 20:
+                odds[1] = str(american_to_decimal(float(odds[1])))
+
             total_bookmaker_prob = (1 / float(odds[0])) + (1 / float(odds[1]))
             bias = abs(1 - total_bookmaker_prob) / 2
             player1 = players[players['ID_P'] == list(match)[0]].iloc[0]['NAME_P']
@@ -356,7 +371,6 @@ def make_nn_predictions(filename, tournament_pickle_file_name, x_scaled_no_dupli
                                             "{:.2f} and {} : {:.2f}.".format(player1, (1 / (float(odds[0])) - bias),
                                                                              player2,
                                                                              (1 / (float(odds[1])) - bias))
-            odds_chosen = "The odds we chose to bet was {}\n".format(odds[abs(int(prediction) - 1)])
 
             f.write("Our Prediction" + "\n")
             f.write(match_analysis + "\n" + "\n")
@@ -366,8 +380,6 @@ def make_nn_predictions(filename, tournament_pickle_file_name, x_scaled_no_dupli
             f.write("MODEL odds and probabilities:" + "\n")
             f.write(our_probabilities + "\n")
             f.write(our_decimal_odds + "\n")
-
-            f.write(odds_chosen + "\n")
 
     return linear_clf
 

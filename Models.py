@@ -109,15 +109,17 @@ def read_oddsportal_data(data_file, players_file, scraping_mode, odds_length, p1
             if p1_id.empty or p2_id.empty:
                 continue
             else:
-                count = count + 1
+
                 player1_id = int(p1_id['ID_P'])
                 player2_id = int(p2_id['ID_P'])
                 p1_list.append(player1_id)
                 p2_list.append(player2_id)
 
                 match_to_odds_dictionary[tuple([player1_id, player2_id])] = [odds[1], odds[2]]
-
-                return [p1_list, p2_list, match_to_odds_dictionary]
+        print(p1_list)
+        print(p2_list)
+        print(match_to_odds_dictionary)
+        return [p1_list, p2_list, match_to_odds_dictionary]
 
 
 def create_database_based_on_set(database_name, match_type, new_db_name):
@@ -510,7 +512,7 @@ class Models(object):
         conn = sqlite3.connect(database_name + '.db')
 
         # The name on this table should be the same as the dataframe
-        dataset = pd.read_sql_query('SELECT * FROM updated_stats_v6', conn)
+        dataset = pd.read_sql_query('SELECT * FROM updated_stats_v3', conn)
 
         # This changes all values to numeric if sqlite3 conversion gave a string
         dataset = dataset.apply(pd.to_numeric, errors='coerce')
@@ -857,12 +859,10 @@ class Models(object):
             prediction_threshold = 90
             print("We are investigating {}.".format(tournament_pickle_file_name))
             odds_file = loads_odds_into_a_list(tournament_pickle_file_name)
-            print(odds_file)
+
             self.players.ID_P = self.players.ID_P.astype(int)
             print("The initial number of games in this tournament with odds scraped is {}.".format(
                 len(odds_file)))
-
-            count = 0
 
             if scraping_mode == 1:  # When he have additional opening odds)
                 p1_list, p2_list, results, match_to_results_dictionary, match_to_odds_dictionary, match_to_initial_odds_dictionary = read_oddsportal_data(
@@ -879,8 +879,6 @@ class Models(object):
                 match_to_initial_odds_dictionary = OrderedDict()
                 match_to_results_dictionary = OrderedDict()
 
-            print("The number of matches left after scraping the ID's of players is {}.".format(count))
-            print(len(match_to_initial_odds_dictionary))
             # Get the list of [match, calculated feature, calculated uncertainty] for each match
             match_features_uncertainty_list = [
                 self.create_prediction_features(p1, p2, court_type, 20000, number_of_features) for i, (p1, p2) in
@@ -901,11 +899,16 @@ class Models(object):
 
                 else:
                     match_uncertainty_dict[match] = uncertainty
-            print("Ater uncertainty threshold, remaining number of matches is {}".format(
-                len(match_to_results_dictionary)))
-
-            features_from_prediction = np.asarray([element[1] for element in match_features_uncertainty_list if
-                                                   element[0] in list(match_to_results_dictionary.keys())])
+            if scraping_mode == 3:
+                print("Ater uncertainty threshold, remaining number of matches is {}".format(
+                    len(match_to_odds_dictionary)))
+                features_from_prediction = np.asarray([element[1] for element in match_features_uncertainty_list if
+                                                       element[0] in list(match_to_odds_dictionary.keys())])
+            else:
+                print("Ater uncertainty threshold, remaining number of matches is {}".format(
+                    len(match_to_results_dictionary)))
+                features_from_prediction = np.asarray([element[1] for element in match_features_uncertainty_list if
+                                                       element[0] in list(match_to_results_dictionary.keys())])
 
             print("features_from_prediction length: {}".format(len(features_from_prediction)))
 
@@ -1508,7 +1511,7 @@ class Models(object):
             return [tuple([player1_id, player2_id]), np.zeros([number_of_features, ]), 10000]
 
 
-DT = Models("updated_stats_v6")  # Initalize the model class with our sqlite3 advanced stats database
+DT = Models("updated_stats_v3")  # Initalize the model class with our sqlite3 advanced stats database
 
 # To create the feature and label space
 
@@ -1516,14 +1519,14 @@ DT = Models("updated_stats_v6")  # Initalize the model class with our sqlite3 ad
 #                                   labeling_method="game_spread")
 
 
-DT.train_model('uncertainty_dict_14.txt', 'label_v12_short.txt',
+DT.train_model('uncertainty_dict_v14.txt', 'label_v12_short.txt',
                number_of_features=7,
                development_mode=False,
                prediction_mode=True, historical_tournament=True,
                save=False,
-               training_mode=True,
+               training_mode=False,
                test_given_model=False,
-               tournament_pickle_file_name='atp_finals_nov11-12.pkl',
+               tournament_pickle_file_name='atpfinals_nov11-12.pkl',
                court_type=1, uncertainty_used=True, neural_net_model_name='ckpt.pth04adam05.tar', scraping_mode=3,
                using_neural_net=True)
 
