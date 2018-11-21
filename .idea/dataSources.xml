@@ -73,11 +73,20 @@
         <property name="enable_load_extension" value="true" />
       </driver-properties>
     </data-source>
-    <data-source source="LOCAL" name="updated_stats_v6.db" uuid="906c0639-b3ea-4a7a-b10d-d2c00e7d0572">
+    <data-source source="LOCAL" name="updated_stats_v6Nov.db" uuid="6a6cd37e-fc6a-45f1-b4f7-31b4063657e2">
       <driver-ref>sqlite.xerial</driver-ref>
       <synchronize>true</synchronize>
       <jdbc-driver>org.sqlite.JDBC</jdbc-driver>
-      <jdbc-url>jdbc:sqlite:$PROJECT_DIR$/updated_stats_v6.db</jdbc-url>
+      <jdbc-url>jdbc:sqlite:$PROJECT_DIR$/updated_stats_v6Nov.db</jdbc-url>
+      <driver-properties>
+        <property name="enable_load_extension" value="true" />
+      </driver-properties>
+    </data-source>
+    <data-source source="LOCAL" name="updated_stats_wta.db" uuid="1b265d07-2e63-42fe-a0ad-e73f5a1a20b3">
+      <driver-ref>sqlite.xerial</driver-ref>
+      <synchronize>true</synchronize>
+      <jdbc-driver>org.sqlite.JDBC</jdbc-driver>
+      <jdbc-url>jdbc:sqlite:$PROJECT_DIR$/updated_stats_wta.db</jdbc-url>
       <driver-properties>
         <property name="enable_load_extension" value="true" />
       </driver-properties>

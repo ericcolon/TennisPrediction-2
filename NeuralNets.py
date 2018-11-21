@@ -190,7 +190,7 @@ def make_nn_predictions(filename, tournament_pickle_file_name, x_scaled_no_dupli
     total_winnings = 0
     count = 0
     correct = 0
-    tournament_name = "ATP_Finals_Nov11-12_predictions.txt\n"
+    tournament_name = "ATP_Finals_Nov15-16_final_predictions.txt"
     f = open(tournament_name, "w+")
 
     if scraping_mode == 1:
@@ -209,7 +209,7 @@ def make_nn_predictions(filename, tournament_pickle_file_name, x_scaled_no_dupli
     print("Training accuracy {}\n".format(float(np.count_nonzero(y_pred == y_test)) / float(len(y_test))))
     calculate_roc_score(y_test, y_pred, 'train')
 
-    f.write(tournament_name)
+    f.write(tournament_name + '\n')
     f.write("Training accuracy {}\n".format(float(np.count_nonzero(y_pred == y_test)) / float(len(y_test))))
 
     # If we have results + opening odds + final odds
@@ -378,8 +378,8 @@ def make_nn_predictions(filename, tournament_pickle_file_name, x_scaled_no_dupli
             f.write(final_bookmaker_odds + "\n")
             f.write(final_bookmaker_probabilities + "\n" + "\n")
             f.write("MODEL odds and probabilities:" + "\n")
-            f.write(our_probabilities + "\n")
-            f.write(our_decimal_odds + "\n")
+            f.write(our_probabilities + "\n" + "\n")
+            f.write(our_decimal_odds + "\n" + "\n")
 
     return linear_clf
 
@@ -436,12 +436,14 @@ class NeuralNetModel(object):
     def train_nn_net_with_torchsample(self, feature_size, batch_size):
         model = Net(feature_size, 128, 2)
         # lr=0.1, momentum=0.55
-        # optimizer = optim.SGD(model.parameters(), lr=0.02, momentum=0.8, nesterov=True)
-        optimizer = optim.Adagrad(model.parameters(), lr=0.02)
+        optimizer = optim.SGD(model.parameters(), lr=0.008, momentum=0.8, nesterov=True)
+        # optimizer = optim.Adagrad(model.parameters(), lr=0.02)
         # optimizer = optim.Adam(model.parameters(), lr=0.00005) # good alternative for threshold = 0.1
         # optimizer = optim.Adam(model.parameters(), lr=0.00015) # better alternative for threshold = 0.15
         # optimizer = optim.Adagrad(model.parameters(), lr=0.0025)  # better alternative for threshold = 0.15
         # optimizer = optim.Adagrad(model.parameters(), lr=0.007)  # better alternative for threshold = 0.1
+        #optimizer = optim.Adagrad(model.parameters(), lr=0.005)  # better alternative for threshold = 0.2
+
         # optimizer = optim.Adagrad(model.parameters(), lr=0.003)  # better alternative for threshold = 0.4 and batchsize = 128
         # optimizer = optim.Adam(model.parameters(), lr=0.00005) # better alternative for threshold = 0.4 and batchsize = 128
 
@@ -488,7 +490,7 @@ class NeuralNetModel(object):
         print(batch_size)
         trainer.fit(self.x_train, self.y_train,
                     val_data=(self.x_val, self.y_val),
-                    num_epoch=200,
+                    num_epoch=500,
                     batch_size=batch_size,
                     verbose=1)
 

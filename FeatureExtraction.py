@@ -5,6 +5,9 @@ from sqlalchemy import create_engine
 from DataExtraction import *
 
 
+# from DataExtraction_WTA import * # For creating our advanced stats for ATP Matches
+
+
 # Methods to convert pandas dataframe into sqlite3 database
 def df2sqlite(dataframe, db_name="import.sqlite", tbl_name="import"):
     conn = sqlite3.connect(db_name)
@@ -298,7 +301,6 @@ class FeatureExtraction(object):
             # Matches that player 1 has won
             head_to_head_1 = matches.loc[np.logical_and(matches['ID1_G'] == player1, matches['ID2_G'] == player2)]
 
-
             # Matches that player 2 has won.
             head_to_head_2 = matches.loc[np.logical_and(matches['ID1_G'] == player2, matches['ID2_G'] == player1)]
 
@@ -583,7 +585,7 @@ def create_surface_matrix(self):
 # RUN THIS CODE  
 # Code to create the Sqlite stats database with all the required information to create features
 
-feature_extraction = FeatureExtraction("db.sqlite")
+feature_extraction = FeatureExtraction("db2.sqlite")
 new_stats = feature_extraction.create_advanced_features()
 new_stats_v1 = feature_extraction.create_set_and_game_stats(new_stats)
 new_stats_v2 = feature_extraction.add_court_types(new_stats_v1)
@@ -595,7 +597,9 @@ print(new_stats_v1.info())
 print(new_stats_v2.info())
 print(new_stats_v3.info())
 print(new_stats_v4.info())
-df2sqlite_v2(new_stats_v4, 'updated_stats_v6')
+# Please specify new database name
+name = 'updated_stats_v6Nov_WTA'
+df2sqlite_v2(new_stats_v4, name)
 
 """
 feature_extraction.extract_players()
