@@ -103,6 +103,7 @@ def read_oddsportal_data(data_file, players_file, scraping_mode, odds_length, p1
             assert len(odds) == odds_length
             p1 = odds[p1_index]
             p2 = odds[p2_index]
+            print(p1)
             p1_id = players_file[players_file['NAME_P'] == p1]
             p2_id = players_file[players_file['NAME_P'] == p2]
 
@@ -116,9 +117,6 @@ def read_oddsportal_data(data_file, players_file, scraping_mode, odds_length, p1
                 p2_list.append(player2_id)
 
                 match_to_odds_dictionary[tuple([player1_id, player2_id])] = [odds[1], odds[2]]
-        print(p1_list)
-        print(p2_list)
-        print(match_to_odds_dictionary)
         return [p1_list, p2_list, match_to_odds_dictionary]
 
 
@@ -512,7 +510,7 @@ class Models(object):
         conn = sqlite3.connect(database_name + '.db')
 
         # The name on this table should be the same as the dataframe
-        dataset = pd.read_sql_query('SELECT * FROM updated_stats_v3', conn)
+        dataset = pd.read_sql_query('SELECT * FROM updated_stats_v6Nov', conn)
 
         # This changes all values to numeric if sqlite3 conversion gave a string
         dataset = dataset.apply(pd.to_numeric, errors='coerce')
@@ -769,9 +767,10 @@ class Models(object):
                     prediction_mode, historical_tournament, training_mode,
                     test_given_model, save, tournament_pickle_file_name, court_type,
                     uncertainty_used, neural_net_model_name, scraping_mode, using_neural_net=False):
+
         features = []
         labels = []
-        fraction_of_matches = 0.4
+        fraction_of_matches = 0.2
         print("The current uncertainty threshold is: {}".format(fraction_of_matches))
         if uncertainty_used:
             print("We are currenty working with data set {} and label set {}".format(dataset_name, labelset_name))
@@ -808,8 +807,9 @@ class Models(object):
                                                                                                            labels)
         # Convert feature and label set into RDATA for further analysis
 
-        # convert_dataframe_into_rdata(pd.DataFrame(x_scaled_no_duplicates), 'features.feather')
-        # convert_dataframe_into_rdata(pd.DataFrame(y_no_duplicates), 'labels.feather')
+       # convert_dataframe_into_rdata(pd.DataFrame(x_scaled_no_duplicates), 'features_all.feather')
+       # convert_dataframe_into_rdata(pd.DataFrame(y_no_duplicates), 'labels_all.feather')
+
         print("Size of our first dimension is {}.".format(np.size(x_scaled_no_duplicates, 0)))
         print("Size of our second dimension is {}.".format(np.size(x_scaled_no_duplicates, 1)))
         print("The number of UNIQUE features in our feature space is {}".format(len(x_scaled_no_duplicates)))
@@ -859,7 +859,7 @@ class Models(object):
             prediction_threshold = 90
             print("We are investigating {}.".format(tournament_pickle_file_name))
             odds_file = loads_odds_into_a_list(tournament_pickle_file_name)
-
+            print(odds_file)
             self.players.ID_P = self.players.ID_P.astype(int)
             print("The initial number of games in this tournament with odds scraped is {}.".format(
                 len(odds_file)))
@@ -1037,10 +1037,9 @@ class Models(object):
         if training_mode:
             print("We are in training mode")
             print("Neural Net Model")
-            NeuralNetModel(x_scaled_no_duplicates, y_no_duplicates.reshape(-1), batchsize=128, dev_set_size=0.4,
+            NeuralNetModel(x_scaled_no_duplicates, y_no_duplicates.reshape(-1), batchsize=128, dev_set_size=0.5,
                            threshold=str(fraction_of_matches), text_file=False)
 
-            sys.exit()
             # Bagged_Decision_Trees(5, x_scaled_no_duplicates, y_no_duplicates, 10)
 
             linear_clf = sklearn.tree.DecisionTreeClassifier(max_depth=4)
@@ -1511,12 +1510,11 @@ class Models(object):
             return [tuple([player1_id, player2_id]), np.zeros([number_of_features, ]), 10000]
 
 
-DT = Models("updated_stats_v3")  # Initalize the model class with our sqlite3 advanced stats database
+DT = Models("updated_stats_v6Nov")  # Initalize the model class with our sqlite3 advanced stats database
 
 # To create the feature and label space
-
-# data_label = DT.create_feature_set('uncertainty_dict_v15_h2h_update_game_spread.txt', 'label_v15_h2h_update_game_spread.txt',
-#                                   labeling_method="game_spread")
+# data_label = DT.create_feature_set('uncertainty_dict_wta.txt', 'label_wta.txt',
+#                          labeling_method="outcome")
 
 
 DT.train_model('uncertainty_dict_v14.txt', 'label_v12_short.txt',
@@ -1526,13 +1524,14 @@ DT.train_model('uncertainty_dict_v14.txt', 'label_v12_short.txt',
                save=False,
                training_mode=False,
                test_given_model=False,
-               tournament_pickle_file_name='atpfinals_nov11-12.pkl',
-               court_type=1, uncertainty_used=True, neural_net_model_name='ckpt.pth04adam05.tar', scraping_mode=3,
+               tournament_pickle_file_name='atpfinals_nov15.pkl',  # kpt.pth.015adagrad_good.tar'
+               court_type=1, uncertainty_used=True, neural_net_model_name='ckpt.pth.015adagrad_good.tar',
+               scraping_mode=3,
                using_neural_net=True)
 
 # WIMBLEDON 2018
 """
-predictions, result_dict = DT.train_decision_stump_model('data_v12_short.txt', 'label_v12_short.txt',
+predictions, result_dict = DT.train_model('data_v12_short.txt', 'label_v12_short.txt',
                                                          number_of_features=7,
                                                          development_mode=False,
                                                          prediction_mode=False, historical_tournament=True,

@@ -242,11 +242,19 @@ class OddsScraper(object):
         """
 
         table = soup.find('table', class_='table-main')
+
         # for tx in soup.find_all('th'):
         #    table_headers.append(tx)
         # print(table_headers)
         matches = table.find_all('td', class_='name table-participant')
-        links = [m.a['href'] for m in matches]
+
+
+        #links = [m.a['href'] for m in matches]
+
+        # USED WHEN ODDSPORTAL DECIDES TO WRITE BAD JS CODE
+        links = [m.contents[2]['href'] for m in matches]
+
+
         return links
 
     # Gives the url's of all matches played in the specified HISTORICAL tournament.
@@ -663,11 +671,12 @@ odds_scraper.odds_scraper_for_a_finished_match(urls, "beijing_2018_odds.pkl", sa
 urls = odds_scraper.historical_tournament_odds_scraper("https://www.oddsportal.com/tennis/japan/atp-tokyo/results/",one_page=True)
 odds_scraper.odds_scraper_for_a_finished_match(urls, "tokyo_2018_odds.pkl", save=True)
 """
-"""
 # Wimbledon 2018
+
+"""
 urls = odds_scraper.historical_tournament_odds_scraper(
-    "https://www.oddsportal.com/tennis/united-kingdom/atp-wimbledon/results/", one_page=False)
-odds_scraper.odds_scraper_for_a_finished_match(urls, "wimbledon_2018_odds_v4.pkl", initial_odds_exist=True, save=True)
+    "https://www.oddsportal.com/tennis/united-kingdom/wta-wimbledon/results/", one_page=False)
+odds_scraper.odds_scraper_for_a_finished_match(urls, "wimbledon_wta_odds.pkl", initial_odds_exist=True, save=True)
 """
 """
 # Paris Open 2018
@@ -679,10 +688,13 @@ odds_scraper.odds_scraper_for_a_finished_match(urls, "paris_open_2018_v2.pkl", i
 """
 urls = odds_scraper.historical_tournament_odds_scraper("http://www.oddsportal.com/tennis/new-zealand/atp-auckland/results/",one_page=True)
 print(len(urls))
-odds_scraper.odds_scraper_for_a_finished_match(urls, "auckland_open_2018_odds_v2.pkl", save=True)
-"""
+odds
+_scraper.odds_scraper_for_a_finished_match(urls, "auckland_open_2018_odds_v2.pkl", save=True)
 """
 # Loading odds for US Open 2018
+
+"""
+#https://www.oddsportal.com/tennis/usa/wta-us-open/results/
 urls = odds_scraper.historical_tournament_odds_scraper("https://www.oddsportal.com/tennis/usa/atp-us-open/results/",
                                                        one_page=False)
 print(len(urls))
@@ -693,8 +705,8 @@ odds_scraper.odds_scraper_for_a_finished_match(urls, "us_open_2018_odds_v2.pkl",
 # Loading odds for US Open 2018
 urls = odds_scraper.historical_tournament_odds_scraper("https://www.oddsportal.com/tennis/world/atp-finals-london/",
                                                        one_page=True)
-print(len(urls))
-odds_scraper.odds_scraper_for_future_match(urls, "atpfinals_nov11-12.pkl", initial_odds_exist=False, save=True)
+print((urls))
+odds_scraper.odds_scraper_for_future_match(urls, "atpfinals_nov15.pkl", initial_odds_exist=False, save=True)
 
 """
 odds_scraper = OddsScraper()
