@@ -5,6 +5,8 @@ import sqlite3
 import statistics as s
 import time
 import sys
+import math
+
 from collections import Counter
 from collections import defaultdict, OrderedDict
 from random import random
@@ -24,7 +26,6 @@ from sklearn.ensemble import BaggingClassifier
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.ensemble import ExtraTreesClassifier  # For Classification
 from sklearn.externals import joblib
-from sklearn.linear_model import LogisticRegression
 from sklearn.multioutput import MultiOutputRegressor
 from sklearn.naive_bayes import GaussianNB
 from sklearn.metrics import roc_curve, auc, r2_score
@@ -474,6 +475,11 @@ def Stacking_with_probability(model, X, y, test, n_fold):
         y_train, y_val = y[train_index], y[test_index]
 
         model.fit(X=X_train, y=y_train)
+        # print(model.predict_proba(X_val))
+        # print(model.classes_)
+        # print(model.predict(X_val))
+        # print("ali")
+        #  print("stop")
         train_pred.append((model.predict_proba(X_val)))  # get probability distribution of each predictions
 
     model.fit(X=X, y=y)  # fit the data on entire train set to get prob. distributions from test set
@@ -597,7 +603,8 @@ class Models(object):
         court_dict[6][4] = 0.24
         court_dict[6][5] = 0.24
         court_dict[6][6] = float(1)
-
+        print("ali")
+        print("stop")
         # Bug Testing
         # code to check types of our stats dataset columns
         # with sqlite3.connect('stats.db', detect_types=sqlite3.PARSE_DECLTYPES) as conn:
@@ -710,9 +717,10 @@ class Models(object):
                 for opponent in common_opponents:
                     for game in player2_games_updated:
                         if opponent == game.ID2 or opponent == game.ID1:
-                            weights_of_p2[opponent].append(court_dict[current_court_id][game.court_type]
-                                                           * calculate_time_discount(time_discount_factor, current_year,
-                                                                                     game.year))
+                            weights_of_p2[opponent].append(
+                                court_dict[current_court_id][game.court_type] * calculate_time_discount(
+                                    time_discount_factor, current_year,
+                                    game.year))
                 sum_of_weights = 0
                 for key in weights_of_p1.keys() & weights_of_p2.keys():
                     sum_of_weights = sum_of_weights + (sum(weights_of_p1[key]) * sum(weights_of_p2[key]))
@@ -792,7 +800,7 @@ class Models(object):
 
         features = []
         labels = []
-        fraction_of_matches = 0.3
+        fraction_of_matches = 0.1
         print("The current uncertainty threshold is: {}".format(fraction_of_matches))
         if uncertainty_used:
             print("We are currenty working with data set {} and label set {}".format(dataset_name, labelset_name))
@@ -836,8 +844,10 @@ class Models(object):
         print("Size of our second dimension is {}.".format(np.size(x_scaled_no_duplicates, 1)))
         print("The number of UNIQUE features in our feature space is {}".format(len(x_scaled_no_duplicates)))
         print("New label set size must be {}.".format(len(y_no_duplicates)))
-        print("Number of labels with label == 1 is {}".format(np.count_nonzero(y_no_duplicates)))
-        print("Number of labels with label == 0 is {}".format(len(y_no_duplicates) - np.count_nonzero(y_no_duplicates)))
+
+        label_counter = collections.Counter(y_no_duplicates)
+        print("Number of labels with label == 1 is {}".format(label_counter[1]))
+        print("Number of labels with label == 2 is {}".format(abs(label_counter[1] - len(y_no_duplicates))))
 
         # Create train and test sets for all 3 options.
         x_train, x_test, y_train, y_test = train_test_split(x_scaled_no_duplicates, y_no_duplicates, test_size=0.2,
@@ -1064,6 +1074,7 @@ class Models(object):
 
             # Bagged_Decision_Trees(5, x_scaled_no_duplicates, y_no_duplicates, 10)
             ols = linear_model.LogisticRegression()
+
             regr = MultiOutputRegressor(linear_model.LinearRegression())
 
             # linear_clf = sklearn.tree.DecisionTreeClassifier(max_depth=8)
@@ -1083,7 +1094,7 @@ class Models(object):
             # WARNING: BLOWING UP THE FEATURE SPACE
             dt_prob_x_train, dt_prob_x_test = self.get_decision_stump_class_probabilities(x_train=x_train,
                                                                                           y_train=y_train,
-                                                                                          x_test=x_test, test_size=0.05,
+                                                                                          x_test=x_test, test_size=0.2,
                                                                                           depth=8,
                                                                                           num_iterations=100)
 
@@ -1091,24 +1102,30 @@ class Models(object):
             assert (len(dt_prob_x_test) == len(x_test))
 
             # Only probabilities
-            print("USING PROBABILITY DISTRIBUTIONS")
-            self.calculate_accuracy_and_roc_score(ols, dt_prob_x_train,
+            print("USING 100 DECISION STUMP PROBABILITY DISTRIBUTIONS")
+            """self.calculate_accuracy_and_roc_score(ols, dt_prob_x_train,
                                                   y_train,
                                                   dt_prob_x_test, y_test)
-
+            """
+            self.multi_response_regressor_eval(dt_prob_x_train,
+                                                  y_train,
+                                                  dt_prob_x_test, y_test)
             print(pd.concat([dt_prob_x_train, x_train_original_df], axis=1).shape)
 
             # Probabilities + original features
-            print("USING PROBABILITY DISTRIBUTIONS + ORIGINAL FEATURES ")
-
+            print("USING 100 Decision Stump ROBABILITY DISTRIBUTIONS + ORIGINAL FEATURES ")
+            """
             self.calculate_accuracy_and_roc_score(ols, pd.concat([dt_prob_x_train, x_train_original_df], axis=1),
                                                   y_train,
                                                   pd.concat([dt_prob_x_test, x_test_original_df], axis=1), y_test)
-
+            """
+            self.multi_response_regressor_eval(pd.concat([dt_prob_x_train, x_train_original_df], axis=1),
+                                                  y_train,
+                                                  pd.concat([dt_prob_x_test, x_test_original_df], axis=1), y_test)
             # Try the Decision Stump Model. Get 100 predictions for each item training trees by randomly sampling %50
 
             dt_x_train, dt_x_test = self.get_decision_stump_predictions(x=x_train, y=y_train,
-                                                                        x_test=x_test, test_size=0.05, depth=8,
+                                                                        x_test=x_test, test_size=0.2, depth=8,
                                                                         iterations=100)
 
             # Check if x and y overlap 1-1
@@ -1116,19 +1133,30 @@ class Models(object):
             assert (len(dt_x_test) == len(x_test))
 
             # Get training and test accuracy and ROC Score
-            print("USING PREDICTIONS")
-
+            print("USING  DECISION STUMP PREDICTIONS")
+            self.multi_response_regressor_eval(pd.DataFrame(dt_x_train),
+                                                  y_train,
+                                               pd.DataFrame(dt_x_test), y_test)
+            """
             self.calculate_accuracy_and_roc_score(ols, dt_x_train,
                                                   y_train,
                                                   dt_x_test, y_test)
-
+            """
             print("USING PREDICTIONS + ORIGINAL FEATURES ")
-
-            self.calculate_accuracy_and_roc_score(ols,
+            """
+              self.calculate_accuracy_and_roc_score(ols,
                                                   pd.concat([pd.DataFrame(dt_x_train), x_train_original_df], axis=1),
                                                   y_train,
                                                   pd.concat([pd.DataFrame(dt_x_test), x_test_original_df], axis=1),
                                                   y_test)
+
+            """
+
+
+            self.multi_response_regressor_eval(pd.concat([pd.DataFrame(dt_x_train), x_train_original_df], axis=1),
+                                               y_train,
+                                               pd.concat([pd.DataFrame(dt_x_test), x_test_original_df], axis=1),
+                                               y_test)
 
             # self.calculate_accuracy_over_threshold(linear_clf, dt_x_train,
             #                                      y_train,
@@ -1148,11 +1176,6 @@ class Models(object):
                 BaggingClassifier(base_estimator=tree.DecisionTreeClassifier(max_depth=4), n_estimators=20,
                                   random_state=seed), x_train_df.values, x_test_df.values, y_train)
 
-            nn_train = x_train_df
-            print(nn_train.values.shape)
-            nn_test = x_test_df
-            print(nn_test.values.shape)
-
             new_nn_train = pd.concat([x_train_df, x_test_df], axis=0)
             new_nn_labels = pd.concat([pd.DataFrame(y_train), pd.DataFrame(y_test)], axis=0)
 
@@ -1161,29 +1184,69 @@ class Models(object):
 
             # We stack them and run another model on top of it
 
+            print("USING 5 BASE LEVEL CLASSIFIERS PROBABILITY DISTRIBUTIONS + ORIGINAL FEATURES")
+
+            self.multi_response_regressor_eval(x_train_df,
+                                               y_train,
+                                               x_test_df, y_test)
+
+
+            self.multi_response_regressor_eval(x_train_df[x_train_df.columns[-8:]].copy(),
+                                               y_train,
+                                               x_test_df[x_test_df.columns[-8:]].copy(), y_test)
+
+            print("USING ONLY 5 BASE LEVEL CLASSIFIERS PROBABILITY DISTRIBUTIONS")
+
             self.calculate_accuracy_and_roc_score(ols,
                                                   x_train_df,
                                                   y_train,
                                                   x_test_df, y_test)
 
-            NeuralNetModel(new_nn_train.values, new_nn_labels.values.reshape(-1), batchsize=128, dev_set_size=0.5,
-                           threshold=str(fraction_of_matches), text_file=False)
+            zero_one_labels_for_nn = np.asarray([1 if label == 1 else 0 for label in list(new_nn_labels.values)])
+            NeuralNetModel(new_nn_train.values, zero_one_labels_for_nn.reshape(-1), batchsize=128, dev_set_size=0.5,
+                       threshold=str(fraction_of_matches), text_file=False)
 
-            # # print("Neural Net Model")
-            #   NeuralNetModel(x_scaled_no_duplicates, y_no_duplicates.reshape(-1), batchsize=128, dev_set_size=0.5,
-            #           threshold=str(fraction_of_matches), text_file=False)
+    def multi_response_regressor_eval(self, xtrain, ytrain, xtest, ytest):
 
-            # corr_X_y(x_train, y_train, figsize=(16, 10), label_rotation=80, hspace=1, fontsize=14)
+        ytrain_1 = [1 if label == 1 else 0 for label in list(ytrain)]
+        ytrain_2 = [1 if label == 2 else 0 for label in list(ytrain)]
+        ytest_1 = [1 if label == 1 else 0 for label in list(ytest)]
+        ytest_2 = [1 if label == 2 else 0 for label in list(ytest)]
 
-            #  ensemble = SuperLearner()
-            # ensemble.add(tree.DecisionTreeClassifier(max_depth=8),
-            #              BaggingClassifier(base_estimator=tree.DecisionTreeClassifier(), n_estimators=100,
-            #                               random_state=1))
-            # ensemble.add_meta(ExtraTreesClassifier(n_estimators=100))
-            # y_pred = ensemble.fit(x_scaled_no_duplicates, y_no_duplicates).predict(x_scaled_no_duplicates)
-            # print("Prediction score: %.3f" % accuracy_score(y_pred, y_no_duplicates))
+        L1 = linear_model.LinearRegression()
+        L2 = linear_model.LinearRegression()
+
+        L1.fit(xtrain, ytrain_1)
+        L2.fit(xtrain, ytrain_2)
+        final_train_labels = []
+        final_test_labels = []
+
+        for feature in xtrain.values:
+
+            l1_score = L1.predict(feature.reshape(1, -1))
+            l2_score = L2.predict(feature.reshape(1, -1))
+
+            if l1_score > l2_score:
+                final_train_labels.append(1)
+            else:
+                final_train_labels.append(2)
+
+        print("MLR Training Accuracy is {}".format((np.asarray(final_train_labels) == ytrain).sum() / len(ytrain)))
+
+        for feature in xtest.values:
+
+            l1_score = L1.predict(feature.reshape(1, -1))
+            l2_score = L2.predict(feature.reshape(1, -1))
+
+            if l1_score > l2_score:
+                final_test_labels.append(1)
+            else:
+                final_test_labels.append(2)
+
+        print("MLR Testing Accuracy is {}".format((np.asarray(final_test_labels) == ytest).sum() / len(ytest)))
 
     # adds class probabilities to original feature set
+
     def add_class_probabilities_to_features(self, model, x_train, x_test, y_train):
 
         x_train_df = pd.DataFrame(x_train)
@@ -1207,8 +1270,9 @@ class Models(object):
 
     # Calculates train and test accuracy with ROC scores
     def calculate_accuracy_and_roc_score(self, linear_clf, train_pred, y_train, test_pred, y_test):
-        print("These scores are for model {}.".format(linear_clf))
+        # print("These scores are for model {}.".format(linear_clf))
         linear_clf.fit(train_pred, y_train)
+        # print(linear_clf.classes_)
 
         assert len(train_pred) == len(y_train)
         assert len(y_test) == len(test_pred)
@@ -1222,11 +1286,11 @@ class Models(object):
         print("Testing  Prediction Accuracy {}".format(linear_clf.score(test_pred, y_test)))
 
         # ROC SCORES
-        false_positive_rate, true_positive_rate, thresholds = roc_curve(y_train, y_train_pred)
+        false_positive_rate, true_positive_rate, thresholds = roc_curve(y_train, y_train_pred, pos_label=2)
         roc_auc = auc(false_positive_rate, true_positive_rate)
         print("ROC SCORE for training is : {}".format(roc_auc))
 
-        false_positive_rate, true_positive_rate, thresholds = roc_curve(y_test, y_test_pred)
+        false_positive_rate, true_positive_rate, thresholds = roc_curve(y_test, y_test_pred, pos_label=2)
         roc_auc = auc(false_positive_rate, true_positive_rate)
         print("ROC SCORE for testing is : {}".format(roc_auc))
 
@@ -1578,9 +1642,9 @@ class Models(object):
 DT = Models("updated_stats_v3")  # Initalize the model class with our sqlite3 advanced stats database
 
 # To create the feature and label space
-# data_label = DT.create_feature_set('uncertainty_dict_wta.txt', 'label_wta.txt', labeling_method="outcome")
+# data_label = DT.create_feature_set('uncertainty_dict_v15.txt', 'label_12.txt', labeling_method="outcome")
 
-DT.train_model('uncertainty_dict_v14.txt', 'label_v12_short.txt',
+DT.train_model('uncertainty_dict_v15.txt', 'label_v12_short.txt',
                number_of_features=7,
                development_mode=False,
                prediction_mode=False, historical_tournament=True,
