@@ -249,10 +249,10 @@ class OddsScraper(object):
         matches = table.find_all('td', class_='name table-participant')
 
 
-        #links = [m.a['href'] for m in matches]
+        links = [m.a['href'] for m in matches]
 
         # USED WHEN ODDSPORTAL DECIDES TO WRITE BAD JS CODE
-        links = [m.contents[2]['href'] for m in matches]
+      #  links = [m.contents[2]['href'] for m in matches]
 
 
         return links
@@ -703,10 +703,10 @@ odds_scraper.odds_scraper_for_a_finished_match(urls, "us_open_2018_odds_v2.pkl",
 
 # Loading odds for ATP Finals Nov11-12
 # Loading odds for US Open 2018
-urls = odds_scraper.historical_tournament_odds_scraper("https://www.oddsportal.com/tennis/world/atp-finals-london/",
-                                                       one_page=True)
+urls = odds_scraper.historical_tournament_odds_scraper("https://www.oddsportal.com/tennis/australia/atp-australian-open/results/",
+                                                       one_page=False)
 print((urls))
-odds_scraper.odds_scraper_for_future_match(urls, "atpfinals_nov15.pkl", initial_odds_exist=False, save=True)
+odds_scraper.odds_scraper_for_a_finished_match(urls, "aus_open_2019.pkl", initial_odds_exist=False, save=True)
 
 """
 odds_scraper = OddsScraper()

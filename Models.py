@@ -102,7 +102,7 @@ def read_oddsportal_data(data_file, players_file, scraping_mode, odds_length, p1
                 match_to_odds_dictionary[tuple([player1_id, player2_id])] = [odds[1], odds[2]]
 
                 match_to_results_dictionary[tuple([player1_id, player2_id])] = result
-                return [p1_list, p2_list, results, match_to_results_dictionary, match_to_odds_dictionary]
+        return [p1_list, p2_list, results, match_to_results_dictionary, match_to_odds_dictionary]
     elif scraping_mode == 3:
         for odds in reversed(data_file):
             assert len(odds) == odds_length
@@ -800,7 +800,7 @@ class Models(object):
 
         features = []
         labels = []
-        fraction_of_matches = 0.1
+        fraction_of_matches = 0.4
         print("The current uncertainty threshold is: {}".format(fraction_of_matches))
         if uncertainty_used:
             print("We are currenty working with data set {} and label set {}".format(dataset_name, labelset_name))
@@ -813,6 +813,7 @@ class Models(object):
 
             threshold_uncertainty_key = list(sorted_dict)[int(math.floor(len(sorted_dict) * fraction_of_matches))]
             threshold_uncertainty = features_uncertainty_dict[threshold_uncertainty_key]
+            print()
             print("Our threshold uncertainty will be {}".format(threshold_uncertainty))
             # get the required percentage of least uncertain matches
             for k, uncertainty in features_uncertainty_dict.items():
@@ -888,7 +889,7 @@ class Models(object):
 
             match_uncertainty_dict = collections.OrderedDict()
 
-            prediction_threshold = 90
+            prediction_threshold = 0.2
             print("We are investigating {}.".format(tournament_pickle_file_name))
             odds_file = loads_odds_into_a_list(tournament_pickle_file_name)
             print(odds_file)
@@ -904,6 +905,12 @@ class Models(object):
                 p1_list, p2_list, results, match_to_results_dictionary, match_to_odds_dictionary = read_oddsportal_data(
                     odds_file, self.players, scraping_mode, 7, 4, 5, 6)
                 match_to_initial_odds_dictionary = OrderedDict()
+                print(len(p1_list))
+                print(len(p2_list))
+                print(len(results))
+                print(len(match_to_results_dictionary))
+                print(len(match_to_odds_dictionary))
+
 
             else:  # Mode where we have no results and no opening odds. Scraping Mode 3
                 p1_list, p2_list, match_to_odds_dictionary = read_oddsportal_data(odds_file, self.players,
@@ -922,12 +929,14 @@ class Models(object):
                 if uncertainty > prediction_threshold:
                     del match_to_results_dictionary[match]
                     del match_to_odds_dictionary[match]
-                    del match_to_initial_odds_dictionary[match]
+                    if scraping_mode == 1:
+                        del match_to_initial_odds_dictionary[match]
 
                 elif np.array_equal(feature, np.zeros([number_of_features, ])):
                     del match_to_results_dictionary[match]
                     del match_to_odds_dictionary[match]
-                    del match_to_initial_odds_dictionary[match]
+                    if scraping_mode == 1:
+                        del match_to_initial_odds_dictionary[match]
 
                 else:
                     match_uncertainty_dict[match] = uncertainty
@@ -974,8 +983,12 @@ class Models(object):
                     match_uncertainty_dict)
 
             if using_neural_net:
+
+                # change labeling from 1-2 format to 1-0 format
+                zero_one_labels_for_nn = np.asarray([1 if label == 1 else 0 for label in list(y_no_duplicates)])
+
                 linear_clf = make_nn_predictions(neural_net_model_name, tournament_pickle_file_name,
-                                                 x_scaled_no_duplicates, y_no_duplicates,
+                                                 x_scaled_no_duplicates, zero_one_labels_for_nn,
                                                  features_from_prediction_final, final_results,
                                                  match_to_results_dictionary, match_to_odds_dictionary, self.players,
                                                  match_uncertainty_dict, match_to_initial_odds_dictionary,
@@ -1103,6 +1116,7 @@ class Models(object):
 
             # Only probabilities
             print("USING 100 DECISION STUMP PROBABILITY DISTRIBUTIONS")
+
             """self.calculate_accuracy_and_roc_score(ols, dt_prob_x_train,
                                                   y_train,
                                                   dt_prob_x_test, y_test)
@@ -1114,6 +1128,7 @@ class Models(object):
 
             # Probabilities + original features
             print("USING 100 Decision Stump ROBABILITY DISTRIBUTIONS + ORIGINAL FEATURES ")
+
             """
             self.calculate_accuracy_and_roc_score(ols, pd.concat([dt_prob_x_train, x_train_original_df], axis=1),
                                                   y_train,
@@ -1134,6 +1149,7 @@ class Models(object):
 
             # Get training and test accuracy and ROC Score
             print("USING  DECISION STUMP PREDICTIONS")
+
             self.multi_response_regressor_eval(pd.DataFrame(dt_x_train),
                                                   y_train,
                                                pd.DataFrame(dt_x_test), y_test)
@@ -1142,7 +1158,8 @@ class Models(object):
                                                   y_train,
                                                   dt_x_test, y_test)
             """
-            print("USING PREDICTIONS + ORIGINAL FEATURES ")
+            print("USING PREDICTIONS + ORIGINAL FEATURES")
+
             """
               self.calculate_accuracy_and_roc_score(ols,
                                                   pd.concat([pd.DataFrame(dt_x_train), x_train_original_df], axis=1),
@@ -1178,6 +1195,7 @@ class Models(object):
 
             new_nn_train = pd.concat([x_train_df, x_test_df], axis=0)
             new_nn_labels = pd.concat([pd.DataFrame(y_train), pd.DataFrame(y_test)], axis=0)
+            zero_one_labels_for_nn = np.asarray([1 if label == 1 else 0 for label in list(new_nn_labels.values)])
 
             print(new_nn_train.values.shape)
             print(new_nn_labels.values.shape)
@@ -1190,20 +1208,19 @@ class Models(object):
                                                y_train,
                                                x_test_df, y_test)
 
+            """
+            self.calculate_accuracy_and_roc_score(ols,
+                                                  x_train_df,
+                                                  y_train,
+                                                  x_test_df, y_test)
+             """
+            print("USING 5 BASE LEVEL CLASSIFIERS PROBABILITY DISTRIBUTIONS")
 
             self.multi_response_regressor_eval(x_train_df[x_train_df.columns[-8:]].copy(),
                                                y_train,
                                                x_test_df[x_test_df.columns[-8:]].copy(), y_test)
 
-            print("USING ONLY 5 BASE LEVEL CLASSIFIERS PROBABILITY DISTRIBUTIONS")
-
-            self.calculate_accuracy_and_roc_score(ols,
-                                                  x_train_df,
-                                                  y_train,
-                                                  x_test_df, y_test)
-
-            zero_one_labels_for_nn = np.asarray([1 if label == 1 else 0 for label in list(new_nn_labels.values)])
-            NeuralNetModel(new_nn_train.values, zero_one_labels_for_nn.reshape(-1), batchsize=128, dev_set_size=0.5,
+            NeuralNetModel(new_nn_train.values, zero_one_labels_for_nn.reshape(-1), batchsize=128, dev_set_size=0.3,
                        threshold=str(fraction_of_matches), text_file=False)
 
     def multi_response_regressor_eval(self, xtrain, ytrain, xtest, ytest):
@@ -1647,13 +1664,13 @@ DT = Models("updated_stats_v3")  # Initalize the model class with our sqlite3 ad
 DT.train_model('uncertainty_dict_v15.txt', 'label_v12_short.txt',
                number_of_features=7,
                development_mode=False,
-               prediction_mode=False, historical_tournament=True,
+               prediction_mode=True, historical_tournament=True,
                save=False,
-               training_mode=True,
+               training_mode=False,
                test_given_model=False,
-               tournament_pickle_file_name='atpfinals_nov15.pkl',  # kpt.pth.015adagrad_good.tar'
+               tournament_pickle_file_name='aus_open_2019.pkl',  # kpt.pth.015adagrad_good.tar'
                court_type=1, uncertainty_used=True, neural_net_model_name='ckpt.pth.015adagrad_good.tar',
-               scraping_mode=3,
+               scraping_mode=2,
                using_neural_net=True)
 
 # WIMBLEDON 2018

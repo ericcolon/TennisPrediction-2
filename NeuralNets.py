@@ -190,7 +190,7 @@ def make_nn_predictions(filename, tournament_pickle_file_name, x_scaled_no_dupli
     total_winnings = 0
     count = 0
     correct = 0
-    tournament_name = "ATP_Finals_Nov15-16_final_predictions.txt"
+    tournament_name = "AUS_OPEN_predictions.txt"
     f = open(tournament_name, "w+")
 
     if scraping_mode == 1:
@@ -436,15 +436,15 @@ class NeuralNetModel(object):
     def train_nn_net_with_torchsample(self, feature_size, batch_size):
         model = Net(feature_size, 128, 2)
         # lr=0.1, momentum=0.55
-       # optimizer = optim.SGD(model.parameters(), lr=0.008, momentum=0.8, nesterov=True)
+        # optimizer = optim.SGD(model.parameters(), lr=0.008, momentum=0.8, nesterov=True)
         # optimizer = optim.Adagrad(model.parameters(), lr=0.02)
         # optimizer = optim.Adam(model.parameters(), lr=0.00005) # good alternative for threshold = 0.1
         # optimizer = optim.Adam(model.parameters(), lr=0.00015) # better alternative for threshold = 0.15
         # optimizer = optim.Adagrad(model.parameters(), lr=0.0025)  # better alternative for threshold = 0.15
         # optimizer = optim.Adagrad(model.parameters(), lr=0.007)  # better alternative for threshold = 0.1
-        optimizer = optim.Adagrad(model.parameters(), lr=0.005)  # better alternative for threshold = 0.2
+        #optimizer = optim.Adagrad(model.parameters(), lr=0.005)  # better alternative for threshold = 0.2
 
-        # optimizer = optim.Adagrad(model.parameters(), lr=0.003)  # better alternative for threshold = 0.4 and batchsize = 128
+        optimizer = optim.Adagrad(model.parameters(), lr=0.003)  # better alternative for threshold = 0.4 and batchsize = 128
         # optimizer = optim.Adam(model.parameters(), lr=0.00005) # better alternative for threshold = 0.4 and batchsize = 128
 
         criterion = torch.nn.CrossEntropyLoss()
