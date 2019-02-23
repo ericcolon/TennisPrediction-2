@@ -1,27 +1,15 @@
 import numpy as np
 # Sqlite3 - Panda converter library
 from sqlalchemy import create_engine
-
+import feather
 from DataExtraction import *
-
+import sys
 
 # from DataExtraction_WTA import * # For creating our advanced stats for ATP Matches
 
-
-# Methods to convert pandas dataframe into sqlite3 database
-def df2sqlite(dataframe, db_name="import.sqlite", tbl_name="import"):
-    conn = sqlite3.connect(db_name)
-    cur = conn.cursor()
-
-    wildcards = ','.join(['?'] * len(dataframe.columns))
-    data = [tuple(x) for x in dataframe.values]
-
-    cur.execute("drop table if exists %s" % tbl_name)
-    col_str = '"' + '","'.join(dataframe.columns) + '"'
-    cur.execute("create table %s (%s)" % (tbl_name, col_str))
-    cur.executemany("insert into %s values(%s)" % (tbl_name, wildcards), data)
-    conn.commit()
-    conn.close()
+def convert_dataframe_into_rdata(df, name):
+    path = name
+    feather.write_dataframe(df, path)
 
 
 def df2sqlite_v2(dataframe, db_name):
@@ -42,9 +30,13 @@ class FeatureExtraction(object):
         self.unfiltered_matches = self.db.get_unfiltered_matches()
         self.unfiltered_tournaments = self.db.get_unfiltered_tournaments()
         self.stats = self.db.get_stats()
+        self.stats = self.stats.reset_index(drop=True)  # reset indexes if any more rows are dropped
+        convert_dataframe_into_rdata(self.stats,"initdataset.feather")
         self.players = self.db.get_players()
         self.tournaments = self.db.get_tournaments()
         self.player_surface_dict = {}
+        #convert_dataframe_into_rdata(self.stats,'initial_dataset.feather')
+        #sys.exit()
 
     # Creates columns  number of games won by each player, number of total games played and the game spread
     def create_set_and_game_stats(self, table):
@@ -585,7 +577,7 @@ def create_surface_matrix(self):
 # RUN THIS CODE  
 # Code to create the Sqlite stats database with all the required information to create features
 
-feature_extraction = FeatureExtraction("db2.sqlite")
+feature_extraction = FeatureExtraction("db.sqlite")
 new_stats = feature_extraction.create_advanced_features()
 new_stats_v1 = feature_extraction.create_set_and_game_stats(new_stats)
 new_stats_v2 = feature_extraction.add_court_types(new_stats_v1)

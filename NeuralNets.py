@@ -190,10 +190,10 @@ def make_nn_predictions(filename, tournament_pickle_file_name, x_scaled_no_dupli
     total_winnings = 0
     count = 0
     correct = 0
-    tournament_name = "ATP_Finals_Nov15-16_final_predictions.txt"
+    tournament_name = "AUS_OPEN_predictions.txt"
     f = open(tournament_name, "w+")
 
-    if scraping_mode == 1:
+    if scraping_mode == 1 or scraping_mode == 2:
         match_to_results_list = list(match_to_results_dictionary.items())  # get list of matches
     else:
         match_to_results_list = []
@@ -320,6 +320,99 @@ def make_nn_predictions(filename, tournament_pickle_file_name, x_scaled_no_dupli
         f.write("Our ROI for {} was: {}.\n".format(tournament_pickle_file_name, ROI))
         f.write("Accuracy over max probability and with odd threshold is {}.\n".format(correct / count))
 
+    elif scraping_mode == 2:
+        y_pred, y_test = resize_prediction_arrays(
+            linear_clf(Variable(torch.from_numpy(features_from_prediction_final).float())), final_results)
+        print("Prediction accuracy {}".format(float(np.count_nonzero(y_pred == y_test)) / float(len(y_test))))
+        f.write("Prediction accuracy {}\n".format(float(np.count_nonzero(y_pred == y_test)) / float(len(y_test))))
+        calculate_roc_score(y_test, y_pred, 'test')
+        for i, (feature, result) in enumerate(zip(features_from_prediction_final, final_results)):
+
+            class_predictions = linear_clf(Variable(torch.from_numpy(feature).float()))
+
+            prob = F.softmax(class_predictions, dim=0)
+
+            prediction_probability = prob.data.numpy()[::-1]
+
+            prediction = np.argmax(prob.data.numpy())
+            calculated_odds_of_p1 = float(100 / prediction_probability[0] / 100)
+            calculated_odds_of_p2 = float(100 / prediction_probability[1] / 100)
+
+            match = match_to_results_list[i][0]  # can do this because everything is ordered
+            odds = match_to_odds_dictionary[tuple(match)]
+            # initial_bookmaker_odds = match_to_initial_odds_dictionary[tuple(match)]
+            uncertainty = match_uncertainty_dict[tuple(match)]
+            total_bookmaker_prob = (1 / float(odds[0])) + (1 / float(odds[1]))
+            bias = abs(1 - total_bookmaker_prob) / 2
+
+            if result == prediction:
+
+                if abs(float(odds[abs(int(prediction) - 1)])) < 20:
+                    correct = correct + 1
+                    count = count + 1
+                    total_winnings = total_winnings + (
+                            bet_amount * float(odds[abs(int(prediction) - 1)]))
+            else:
+                count = count + 1
+                total_winnings = total_winnings - bet_amount
+
+            # print("Our total winnings so far is {}".format(total_winnings))
+            player1 = players[players['ID_P'] == list(match)[0]].iloc[0]['NAME_P']
+            player2 = players[players['ID_P'] == list(match)[1]].iloc[0]['NAME_P']
+            f.write("MATCH NUMBER {}. Uncertainty: {}\n".format(i, uncertainty))
+            if (uncertainty < 0.2):
+                f.write("This uncertainty means the quality of match features is GOOD.\n".format(i, uncertainty))
+            else:
+                f.write("This uncertainty means the quality of match features is NOT GOOD.\n".format(i, uncertainty))
+
+            match_analysis = "Prediction for match {} - {} was {}. The result was {}.".format(
+                player1, player2, prediction, result)
+            our_probabilities = "The calculated model probabilities: \n{} : {:.2f} and {} : {:.2f}.".format(player1,
+                                                                                                            prediction_probability[
+                                                                                                                0],
+                                                                                                            player2,
+                                                                                                            prediction_probability[
+                                                                                                                1])
+            our_decimal_odds = "Converting our implied probability into decimal odds, model calculates odds as: \n{} :" \
+                               " {:.2f} and {} : {:.2f}. ".format(player1, calculated_odds_of_p1, player2,
+                                                                  calculated_odds_of_p2)
+            print(match_analysis)
+            print(our_probabilities)
+            print(our_decimal_odds)
+            bookmaker_odds = "The bookmakers final odds were: \n{} : {} and {} : {}".format(
+                player1, odds[0], player2, odds[1])
+
+            print(bookmaker_odds)
+            bookmaker_probabilities = "The final bookmaker probabilities  are: \n{} : " \
+                                      "{:.2f} and {} : {:.2f}.".format(player1, (1 / (float(odds[0])) - bias), player2,
+                                                                       (1 / (float(odds[1])) - bias))
+
+            print(bookmaker_probabilities)
+
+            odds_chosen = "The odds we chose to bet was {}\n".format(odds[abs(int(prediction) - 1)])
+
+            print(odds_chosen)
+            # Write the results to a text file
+            f.write("Our Prediction and result" + "\n")
+            f.write(match_analysis + "\n" + "\n")
+
+            f.write("INITIAL bookmaker odds and probabilities:" + "\n")
+
+            f.write("FINAL bookmaker odds and probabilities:" + "\n")
+            f.write(bookmaker_odds + "\n")
+            f.write(bookmaker_probabilities + "\n" + "\n")
+
+            f.write("MODEL odds and probabilities:" + "\n")
+            f.write(our_probabilities + "\n")
+            f.write(our_decimal_odds + "\n")
+
+            f.write(odds_chosen + "\n")
+
+        f.write("Total amount of bets we made is: {}\n".format(bet_amount * count))
+        f.write("Total Winnings: {}\n".format(total_winnings))
+        ROI = (total_winnings - (bet_amount * count)) / (bet_amount * count) * 100
+        f.write("Our ROI for {} was: {}.\n".format(tournament_pickle_file_name, ROI))
+        f.write("Accuracy over max probability and with odd threshold is {}.\n".format(correct / count))
     else:
         for i, (feature, odd) in enumerate(zip(features_from_prediction_final, match_to_odds_list)):
             class_predictions = linear_clf(Variable(torch.from_numpy(feature).float()))
@@ -413,7 +506,7 @@ class NeuralNetModel(object):
         self.lrs = []
         self.epochs = []
         self.val_losses = []
-        self.train_nn_net_with_torchsample(7, self.batchsize)
+        self.train_nn_net_with_torchsample(15, self.batchsize)
 
     def early_stopping_schedule(self, epoch, lr, current_val_loss):
         self.lrs.append(lr)
@@ -436,15 +529,16 @@ class NeuralNetModel(object):
     def train_nn_net_with_torchsample(self, feature_size, batch_size):
         model = Net(feature_size, 128, 2)
         # lr=0.1, momentum=0.55
-        optimizer = optim.SGD(model.parameters(), lr=0.008, momentum=0.8, nesterov=True)
+        # optimizer = optim.SGD(model.parameters(), lr=0.008, momentum=0.8, nesterov=True)
         # optimizer = optim.Adagrad(model.parameters(), lr=0.02)
         # optimizer = optim.Adam(model.parameters(), lr=0.00005) # good alternative for threshold = 0.1
         # optimizer = optim.Adam(model.parameters(), lr=0.00015) # better alternative for threshold = 0.15
         # optimizer = optim.Adagrad(model.parameters(), lr=0.0025)  # better alternative for threshold = 0.15
         # optimizer = optim.Adagrad(model.parameters(), lr=0.007)  # better alternative for threshold = 0.1
-        #optimizer = optim.Adagrad(model.parameters(), lr=0.005)  # better alternative for threshold = 0.2
+        # optimizer = optim.Adagrad(model.parameters(), lr=0.005)  # better alternative for threshold = 0.2
 
-        # optimizer = optim.Adagrad(model.parameters(), lr=0.003)  # better alternative for threshold = 0.4 and batchsize = 128
+        optimizer = optim.Adagrad(model.parameters(),
+                                  lr=0.003)  # better alternative for threshold = 0.4 and batchsize = 128
         # optimizer = optim.Adam(model.parameters(), lr=0.00005) # better alternative for threshold = 0.4 and batchsize = 128
 
         criterion = torch.nn.CrossEntropyLoss()
