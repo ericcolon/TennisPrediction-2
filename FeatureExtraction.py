@@ -3,7 +3,6 @@ import numpy as np
 from sqlalchemy import create_engine
 import feather
 from DataExtraction import *
-import sys
 
 # from DataExtraction_WTA import * # For creating our advanced stats for ATP Matches
 
@@ -31,12 +30,11 @@ class FeatureExtraction(object):
         self.unfiltered_tournaments = self.db.get_unfiltered_tournaments()
         self.stats = self.db.get_stats()
         self.stats = self.stats.reset_index(drop=True)  # reset indexes if any more rows are dropped
-        convert_dataframe_into_rdata(self.stats,"initdataset.feather")
+        # convert_dataframe_into_rdata(self.stats,"initdataset.feather")
         self.players = self.db.get_players()
         self.tournaments = self.db.get_tournaments()
         self.player_surface_dict = {}
-        #convert_dataframe_into_rdata(self.stats,'initial_dataset.feather')
-        #sys.exit()
+        # convert_dataframe_into_rdata(self.stats,'initial_dataset.feather')
 
     # Creates columns  number of games won by each player, number of total games played and the game spread
     def create_set_and_game_stats(self, table):
@@ -342,21 +340,37 @@ class FeatureExtraction(object):
 
     # Finds the year in which each match was played and adds it to database as a year column
     def add_match_year(self, table):
-        self.tournaments["DATE_T"] = pd.to_datetime(self.tournaments["DATE_T"])
-        tours = self.tournaments["DATE_T"].dt.year.to_frame()
-        tours.reset_index(level=0, inplace=True)
 
+        # These three lines created a bug. Taking index instead of tournament id_t is a wrong assumption since there is no 1-1 relationship
+        # self.tournaments["DATE_T"] = pd.to_datetime(self.tournaments["DATE_T"])
+        # tours = self.unfiltered_tournaments["DATE_T"].dt.year.to_frame()
+        # tours.reset_index(level=0, inplace=True)
+
+        # instead take id_t and date_t values AND COMPARE tournament id_t with match id_t
+        tours = self.unfiltered_tournaments[['DATE_T', 'ID_T']]
+        tours['DATE_T'] = tours["DATE_T"].dt.year
+
+        # convert_dataframe_into_rdata(tourdf,"unfilteredtoursv2.feather")
+
+        print("ali")
+        print("stop")
         table['year'] = ""
         for i in table.index:
             print("We are year of the match at index {}".format(i))
             tour_id = table.at[i, "ID_T"]
-            tournament = tours.loc[tours["index"] == tour_id]
+            tournament = tours.loc[tours["ID_T"] == tour_id]
 
             if not tournament.empty:
                 table.at[i, 'year'] = int(tournament["DATE_T"])
+            else:
+                print("For some reason we did not extract the tournament row")
 
-        table['year'].fillna(2018, inplace=True)
         final_dataset = table.reset_index(drop=True)  # reset indexes if any more rows are dropped
+
+        # Used for testing purposes
+        # final_dataset = final_dataset.apply(pd.to_numeric, errors='coerce')
+        # convert_dataframe_into_rdata(final_dataset,"unfilteredtoursv3.feather")
+
         return final_dataset
 
     def extract_players(self):
@@ -368,18 +382,11 @@ class FeatureExtraction(object):
         df2sqlite_v2(self.players, "atp_players")
         print("Player sqlite database successfully created")
 
-    def get_filtered_matches(self):
-        return self.matches
-
-    def get_unfiltered_matches(self):
-        return self.unfiltered_matches
-
 
 """
 def calculate_surface_matrix(self, mean_grass, std_grass, mean_clay, std_clay, mean_indoor, std_indoor, mean_hard,
                              std_hard, number_of_players):
     start_time = time.time()
-
     p_clay_hard = 0
     p_clay_grass = 0
     p_clay_indoor = 0
@@ -392,53 +399,36 @@ def calculate_surface_matrix(self, mean_grass, std_grass, mean_clay, std_clay, m
     print("We are investigating {} players".format(len(matches.ID1_G.unique())))
 
     for id in matches.ID1_G.unique():
+    
         player_id = id
-
         # get all the matches of a particular player in our dataset
-
         player_wins = matches.loc[(matches.ID1_G == player_id)]
-
         if player_wins.empty:
             continue
-
         total_wins = len(player_wins)
-
         grass_wins = 0
         hard_wins = 0
         indoor_wins = 0
         clay_wins = 0
         print(player_id)
-
         # Iterate through wins of this player
         for j in player_wins.index:
-
             tournament_id = player_wins.at[j, "ID_T_G"]  # Get the tournament id of the player's game
-
             tournament = self.unfiltered_tournaments.loc[
                 self.unfiltered_tournaments['ID_T'] == tournament_id]  # Find the tournament
-
             if tournament.empty:
                 continue
-
             # court_id = tournament.iloc[0]['ID_C_T']  # Find which court that game was played on
             court_id = float(tournament['ID_C_T'])  # casting it as a float
-
             if court_id == 1:
-
                 hard_wins = hard_wins + 1
-
             elif court_id == 2:
                 clay_wins = clay_wins + 1
-
             elif court_id == 3:
                 indoor_wins = indoor_wins + 1
-
             elif court_id == 5:
-
                 grass_wins = grass_wins + 1
-
             # for each win go its tournament id get what floor it was on and increase the number of wins in that floor
-
         grass_percentage = float(grass_wins / total_wins)
         hard_percentage = float(hard_wins / total_wins)
         indoor_percentage = float(indoor_wins / total_wins)
@@ -450,22 +440,21 @@ def calculate_surface_matrix(self, mean_grass, std_grass, mean_clay, std_clay, m
         p_grass_indoor = p_grass_indoor + ((grass_percentage - mean_grass) * (indoor_percentage * mean_indoor))
         p_hard_indoor = p_hard_indoor + ((hard_percentage - mean_hard) * (indoor_percentage * mean_indoor))
 
-    clay_hard_matrix_value = float(p_clay_hard / (number_of_players * std_clay * std_hard))
-    clay_grass_matrix_value = float(p_clay_grass / (number_of_players * std_grass * std_clay))
-    clay_indoor_matrix_value = float(p_clay_indoor / (number_of_players * std_indoor * std_clay))
-    hard_grass_matrix_value = float(p_hard_grass / (number_of_players * std_hard * std_grass))
-    hard_indoor_matrix_value = float(p_hard_indoor / (number_of_players * std_hard * std_indoor))
-    grass_indoor_matrix_value = float(p_grass_indoor / (number_of_players * std_grass * std_indoor))
+        clay_hard_matrix_value = float(p_clay_hard / (number_of_players * std_clay * std_hard))
+        clay_grass_matrix_value = float(p_clay_grass / (number_of_players * std_grass * std_clay))
+        clay_indoor_matrix_value = float(p_clay_indoor / (number_of_players * std_indoor * std_clay))
+        hard_grass_matrix_value = float(p_hard_grass / (number_of_players * std_hard * std_grass))
+        hard_indoor_matrix_value = float(p_hard_indoor / (number_of_players * std_hard * std_indoor))
+        grass_indoor_matrix_value = float(p_grass_indoor / (number_of_players * std_grass * std_indoor))
+        print("clay_hard_matrix_value is {}:".format(clay_hard_matrix_value))
+        print("clay_grass_matrix_value is {}:".format(clay_grass_matrix_value))
+        print("clay_indoor_matrix_value is {}:".format(clay_indoor_matrix_value))
+        print("hard_grass_matrix_value is {}:".format(hard_grass_matrix_value))
+        print("hard_indoor_matrix_value is {}:".format(hard_indoor_matrix_value))
+        print("grass_indoor_matrix_value is {}:".format(grass_indoor_matrix_value))
 
-    print("clay_hard_matrix_value is {}:".format(clay_hard_matrix_value))
-    print("clay_grass_matrix_value is {}:".format(clay_grass_matrix_value))
-    print("clay_indoor_matrix_value is {}:".format(clay_indoor_matrix_value))
-    print("hard_grass_matrix_value is {}:".format(hard_grass_matrix_value))
-    print("hard_indoor_matrix_value is {}:".format(hard_indoor_matrix_value))
-    print("grass_indoor_matrix_value is {}:".format(grass_indoor_matrix_value))
-
-    print("Investigated total number of {} players".format(number_of_players))
-    print("Time took for creating surface matrix--- %s seconds ---" % (time.time() - start_time))
+        print("Investigated total number of {} players".format(number_of_players))
+        print("Time took for creating surface matrix--- %s seconds ---" % (time.time() - start_time))
 
 # For each player --> Create a dictionary that maps surfaces to number of wins
 # mean percentage of matches won on surface a is calculated as getting percentage of matches won on that surface 
@@ -544,8 +533,7 @@ def create_surface_matrix(self):
         grass_percentage.append(float(grass_wins / total_wins))
         hard_percentage.append(float(hard_wins / total_wins))
         indoor_percentage.append(float(indoor_wins / total_wins))
-        clay_percentage.append(float(clay_wins / total_wins))
-
+        clay_percentage.append(float(clay_wins / total_wins)
     largest_grass = heapq.nlargest(1, grass_percentage)[0]
     largest_clay = heapq.nlargest(1, clay_percentage)[0]
     largest_hard = heapq.nlargest(1, hard_percentage)[0]
@@ -570,14 +558,13 @@ def create_surface_matrix(self):
     print(std_hard)
     print(std_indoor)
     return [mean_grass, std_grass, mean_clay, std_clay, mean_indoor, std_indoor, mean_hard, std_hard,
-            number_of_players]
-
-"""
+            number_of_players]"""
 
 # RUN THIS CODE  
 # Code to create the Sqlite stats database with all the required information to create features
 
-feature_extraction = FeatureExtraction("db.sqlite")
+
+feature_extraction = FeatureExtraction("db3.sqlite")
 new_stats = feature_extraction.create_advanced_features()
 new_stats_v1 = feature_extraction.create_set_and_game_stats(new_stats)
 new_stats_v2 = feature_extraction.add_court_types(new_stats_v1)
@@ -590,7 +577,7 @@ print(new_stats_v2.info())
 print(new_stats_v3.info())
 print(new_stats_v4.info())
 # Please specify new database name
-name = 'updated_stats_v6Nov_WTA'
+name = 'updated_stats_v6'
 df2sqlite_v2(new_stats_v4, name)
 
 """
