@@ -77,12 +77,14 @@ class Net(torch.nn.Module):
         return out
 
 
-def preprocess_features_before_training(features, labels):
+def preprocess_features_before_training(x, y):
     # 1. Reverse the feature and label set
     # 2. Scale the features to unit variance (except h2h feature). Also save the std. deviation of each feature
     # 3. Remove any duplicates (so we don't have any hard to find problems with dictionaries later
-    x = features[::-1]
-    y = labels[::-1]
+
+    # Maybe no need to do this again since we did it in the first place right after creating the dataset
+    # x = features[::-1]
+    # y = labels[::-1]
     # number_of_columns = x.shape[1] - 1
 
     # Before standardizing we want to take out the H2H column
@@ -186,11 +188,15 @@ def make_nn_predictions(filename, tournament_pickle_file_name, x_scaled_no_dupli
                         match_to_odds_dictionary, players, match_uncertainty_dict, match_to_initial_odds_dictionary,
                         scraping_mode):
     # Variables
+    ROI = 0
     bet_amount = 10
     total_winnings = 0
     count = 0
     correct = 0
-    tournament_name = "AUS_OPEN_predictions.txt"
+    total_bankroll = 100
+    initial_bankroll = total_bankroll
+    total_amount_of_bet = 0
+    tournament_name = "miaminew3.txt"
     f = open(tournament_name, "w+")
 
     if scraping_mode == 1 or scraping_mode == 2:
@@ -200,7 +206,10 @@ def make_nn_predictions(filename, tournament_pickle_file_name, x_scaled_no_dupli
     match_to_odds_list = list(match_to_odds_dictionary.items())  # get list of matches
 
     # Load the model
-    linear_clf = Net(7, 128, 2)
+    # print(torch.from_numpy(x_scaled_no_duplicates).shape)
+    # print(torch.from_numpy(features_from_prediction_final).shape)
+
+    linear_clf = Net(15, 128, 2)
     linear_clf.load_state_dict(torch.load(filename))  # 'ckpt.pth02.tar'
 
     # Write training and test accuracy to text file
@@ -216,6 +225,7 @@ def make_nn_predictions(filename, tournament_pickle_file_name, x_scaled_no_dupli
     if scraping_mode == 1:
         y_pred, y_test = resize_prediction_arrays(
             linear_clf(Variable(torch.from_numpy(features_from_prediction_final).float())), final_results)
+
         print("Prediction accuracy {}".format(float(np.count_nonzero(y_pred == y_test)) / float(len(y_test))))
         f.write("Prediction accuracy {}\n".format(float(np.count_nonzero(y_pred == y_test)) / float(len(y_test))))
         calculate_roc_score(y_test, y_pred, 'test')
@@ -250,7 +260,7 @@ def make_nn_predictions(filename, tournament_pickle_file_name, x_scaled_no_dupli
                             bet_amount * float(odds[abs(int(prediction) - 1)]))
             else:
                 count = count + 1
-                total_winnings = total_winnings - bet_amount
+                # total_winnings = total_winnings - bet_amount
 
             # print("Our total winnings so far is {}".format(total_winnings))
             player1 = players[players['ID_P'] == list(match)[0]].iloc[0]['NAME_P']
@@ -321,11 +331,19 @@ def make_nn_predictions(filename, tournament_pickle_file_name, x_scaled_no_dupli
         f.write("Accuracy over max probability and with odd threshold is {}.\n".format(correct / count))
 
     elif scraping_mode == 2:
+
         y_pred, y_test = resize_prediction_arrays(
             linear_clf(Variable(torch.from_numpy(features_from_prediction_final).float())), final_results)
+
         print("Prediction accuracy {}".format(float(np.count_nonzero(y_pred == y_test)) / float(len(y_test))))
         f.write("Prediction accuracy {}\n".format(float(np.count_nonzero(y_pred == y_test)) / float(len(y_test))))
         calculate_roc_score(y_test, y_pred, 'test')
+
+        kelly_uncertainty_dict = {match: 1 - (float(uncertainty) / max(list(match_uncertainty_dict.values()))) for
+                                  match, uncertainty in match_uncertainty_dict.items()}
+
+        print("ali")
+        print("stop")
         for i, (feature, result) in enumerate(zip(features_from_prediction_final, final_results)):
 
             class_predictions = linear_clf(Variable(torch.from_numpy(feature).float()))
@@ -342,23 +360,19 @@ def make_nn_predictions(filename, tournament_pickle_file_name, x_scaled_no_dupli
             odds = match_to_odds_dictionary[tuple(match)]
             # initial_bookmaker_odds = match_to_initial_odds_dictionary[tuple(match)]
             uncertainty = match_uncertainty_dict[tuple(match)]
+
+            if abs(float(odds[0])) > 20:
+                odds[0] = str(american_to_decimal(float(odds[0])))
+            if abs(float(odds[1])) > 20:
+                odds[1] = str(american_to_decimal(float(odds[1])))
+
             total_bookmaker_prob = (1 / float(odds[0])) + (1 / float(odds[1]))
             bias = abs(1 - total_bookmaker_prob) / 2
-
-            if result == prediction:
-
-                if abs(float(odds[abs(int(prediction) - 1)])) < 20:
-                    correct = correct + 1
-                    count = count + 1
-                    total_winnings = total_winnings + (
-                            bet_amount * float(odds[abs(int(prediction) - 1)]))
-            else:
-                count = count + 1
-                total_winnings = total_winnings - bet_amount
 
             # print("Our total winnings so far is {}".format(total_winnings))
             player1 = players[players['ID_P'] == list(match)[0]].iloc[0]['NAME_P']
             player2 = players[players['ID_P'] == list(match)[1]].iloc[0]['NAME_P']
+
             f.write("MATCH NUMBER {}. Uncertainty: {}\n".format(i, uncertainty))
             if (uncertainty < 0.2):
                 f.write("This uncertainty means the quality of match features is GOOD.\n".format(i, uncertainty))
@@ -376,22 +390,65 @@ def make_nn_predictions(filename, tournament_pickle_file_name, x_scaled_no_dupli
             our_decimal_odds = "Converting our implied probability into decimal odds, model calculates odds as: \n{} :" \
                                " {:.2f} and {} : {:.2f}. ".format(player1, calculated_odds_of_p1, player2,
                                                                   calculated_odds_of_p2)
-            print(match_analysis)
-            print(our_probabilities)
-            print(our_decimal_odds)
+
             bookmaker_odds = "The bookmakers final odds were: \n{} : {} and {} : {}".format(
                 player1, odds[0], player2, odds[1])
-
-            print(bookmaker_odds)
             bookmaker_probabilities = "The final bookmaker probabilities  are: \n{} : " \
                                       "{:.2f} and {} : {:.2f}.".format(player1, (1 / (float(odds[0])) - bias), player2,
                                                                        (1 / (float(odds[1])) - bias))
 
-            print(bookmaker_probabilities)
+            # Kelly criterion calculations
 
-            odds_chosen = "The odds we chose to bet was {}\n".format(odds[abs(int(prediction) - 1)])
+            odds_int = list(map(float, odds))
+            p_int = list(map(float, prediction_probability))
+            q_int = [float(1 - prob) for prob in p_int]
+            kelly = [((p_int[i] * (odds_int[i] - 1)) - q_int[i]) / (odds_int[i] - 1) for i in range(len(odds_int))]
 
-            print(odds_chosen)
+            print("Remaining Bankroll is {}".format(total_bankroll))
+            print("Current total winnings is {}".format(total_winnings))
+            print(match_analysis)
+            print(our_probabilities)
+            print(bookmaker_odds)
+
+            kelly_confidence_value = kelly_uncertainty_dict[tuple(match)]
+            print("Kelly results are {}".format(kelly))
+
+            print("Our Current Kelly Confidence Value for this Match is {}".format(kelly_confidence_value))
+            odds_chosen = ""
+
+            for i in range(len(kelly)):
+                if kelly[i] < 0:
+                    continue
+                else:
+                    print("Current Kelly {}".format(kelly[i]))
+                    # print("The odds {}".format(float(odds_int[i])))
+                    odds_chosen = "The odds we chose to bet was {}".format(float(odds_int[i]))
+                    print(odds_chosen)
+
+                    # TODO TRY USING OUR PREDICTION AS A FACTOR IN KELLY CONFIDENCE VALUE
+
+                    bet = kelly[i] * total_bankroll * kelly_confidence_value
+                    total_amount_of_bet = total_amount_of_bet + bet
+                    print(
+                        "The bet we are putting, which is calculated as {} * {} * {} ,is: {}".format(
+                            kelly[i], total_bankroll, kelly_confidence_value, bet))
+
+                    total_bankroll = total_bankroll - bet
+                    total_winnings = total_winnings - bet
+
+                    count = count + 1
+                    if result == abs(i - 1):
+                        total_winnings = total_winnings + (bet * odds_int[i])
+                        total_bankroll = total_bankroll + (bet * odds_int[i])
+                        correct = correct + 1
+                        print("The amount that we won is {}".format((bet * odds_int[i])))
+                    else:
+                        print("The amount that we lost is {}".format((bet)))
+
+                print("Total bankroll after last match {}".format(total_bankroll))
+                print("Total winnings after last match {}\n".format(total_winnings))
+
+
             # Write the results to a text file
             f.write("Our Prediction and result" + "\n")
             f.write(match_analysis + "\n" + "\n")
@@ -408,12 +465,18 @@ def make_nn_predictions(filename, tournament_pickle_file_name, x_scaled_no_dupli
 
             f.write(odds_chosen + "\n")
 
-        f.write("Total amount of bets we made is: {}\n".format(bet_amount * count))
+        # f.write("Total amount of bets we made is: {}\n".format(bet_amount * count))
+        f.write("Total amount of bets we made is: {}\n".format(total_amount_of_bet))
+        f.write("Our final bankroll is : {}\n".format(total_bankroll))
+
         f.write("Total Winnings: {}\n".format(total_winnings))
-        ROI = (total_winnings - (bet_amount * count)) / (bet_amount * count) * 100
+        ROI = (total_bankroll - initial_bankroll) / initial_bankroll
         f.write("Our ROI for {} was: {}.\n".format(tournament_pickle_file_name, ROI))
-        f.write("Accuracy over max probability and with odd threshold is {}.\n".format(correct / count))
+        f.write("Accuracy using Kelly strategy is {}.\n".format(correct / count))
     else:
+
+        kelly_uncertainty_dict = {match: 1 - (float(uncertainty) / max(list(match_uncertainty_dict.values()))) for
+                                  match, uncertainty in match_uncertainty_dict.items()}
         for i, (feature, odd) in enumerate(zip(features_from_prediction_final, match_to_odds_list)):
             class_predictions = linear_clf(Variable(torch.from_numpy(feature).float()))
 
@@ -427,6 +490,7 @@ def make_nn_predictions(filename, tournament_pickle_file_name, x_scaled_no_dupli
             odds = match_to_odds_dictionary[tuple(match)]
             uncertainty = match_uncertainty_dict[tuple(match)]
 
+
             # Convert American to decimal odd if necessary:
             if abs(float(odds[0])) > 20:
                 odds[0] = str(american_to_decimal(float(odds[0])))
@@ -437,6 +501,53 @@ def make_nn_predictions(filename, tournament_pickle_file_name, x_scaled_no_dupli
             bias = abs(1 - total_bookmaker_prob) / 2
             player1 = players[players['ID_P'] == list(match)[0]].iloc[0]['NAME_P']
             player2 = players[players['ID_P'] == list(match)[1]].iloc[0]['NAME_P']
+
+            odds_int = list(map(float, odds))
+            p_int = list(map(float, prediction_probability))
+            q_int = [float(1 - prob) for prob in p_int]
+            kelly = [((p_int[i] * (odds_int[i] - 1)) - q_int[i]) / (odds_int[i] - 1) for i in range(len(odds_int))]
+            print("Remaining Bankroll is {}".format(total_bankroll))
+            print("Current total winnings is {}".format(total_winnings))
+
+            kelly_confidence_value = kelly_uncertainty_dict[tuple(match)]
+            print("Kelly results are {}".format(kelly))
+            print("Our Current Kelly Confidence Value for this Match is {}".format(kelly_confidence_value))
+            odds_chosen = ""
+            for i in range(len(kelly)):
+                if kelly[i] < 0:
+                    continue
+                else:
+                    print("Current Kelly {}".format(kelly[i]))
+                    # print("The odds {}".format(float(odds_int[i])))
+                    odds_chosen = "The odds we chose to bet was {}".format(float(odds_int[i]))
+                    print(odds_chosen)
+
+                    # TODO TRY USING OUR PREDICTION AS A FACTOR IN KELLY CONFIDENCE VALUE
+
+                    bet = kelly[i] * total_bankroll * kelly_confidence_value
+                    total_amount_of_bet = total_amount_of_bet + bet
+                    print(
+                        "The bet we are putting, which is calculated as {} * {} * {} ,is: {}".format(
+                            kelly[i], total_bankroll, kelly_confidence_value, bet))
+
+                    total_bankroll = total_bankroll - bet
+                    total_winnings = total_winnings - bet
+
+                    count = count + 1
+                   # if result == abs(i - 1):
+                    total_winnings = total_winnings + (bet * odds_int[i])
+                    total_bankroll = total_bankroll + (bet * odds_int[i])
+                    correct = correct + 1
+                    print("The amount that we won is {}".format((bet * odds_int[i])))
+
+                    print("The amount that we lost is {}".format((bet)))
+
+                print("Total bankroll after last match {}".format(total_bankroll))
+                print("Total winnings after last match {}\n".format(total_winnings))
+
+
+
+
 
             # For each match use above variables to write the analysis below.
             f.write("MATCH NUMBER {}. Uncertainty: {}\n".format(i, uncertainty))
@@ -474,7 +585,7 @@ def make_nn_predictions(filename, tournament_pickle_file_name, x_scaled_no_dupli
             f.write(our_probabilities + "\n" + "\n")
             f.write(our_decimal_odds + "\n" + "\n")
 
-    return linear_clf
+    return ROI
 
 
 class NeuralNetModel(object):
@@ -502,11 +613,11 @@ class NeuralNetModel(object):
                 dataset_name, labelset_name, dev_set_size)
         # print(self.x_train.shape)
         # print(self.y_train.shape)
-
+        featureSize = 15
         self.lrs = []
         self.epochs = []
         self.val_losses = []
-        self.train_nn_net_with_torchsample(15, self.batchsize)
+        self.train_nn_net_with_torchsample(featureSize, self.batchsize)
 
     def early_stopping_schedule(self, epoch, lr, current_val_loss):
         self.lrs.append(lr)
@@ -535,10 +646,11 @@ class NeuralNetModel(object):
         # optimizer = optim.Adam(model.parameters(), lr=0.00015) # better alternative for threshold = 0.15
         # optimizer = optim.Adagrad(model.parameters(), lr=0.0025)  # better alternative for threshold = 0.15
         # optimizer = optim.Adagrad(model.parameters(), lr=0.007)  # better alternative for threshold = 0.1
-        # optimizer = optim.Adagrad(model.parameters(), lr=0.005)  # better alternative for threshold = 0.2
-
+        # optimizer = optim.Adagrad(model.parameters(), lr=0.005)  # better alternative for threshold = 0.2  and 0.4
         optimizer = optim.Adagrad(model.parameters(),
                                   lr=0.003)  # better alternative for threshold = 0.4 and batchsize = 128
+        # optimizer = optim.Adagrad(model.parameters(),
+        #                      lr=0.003)  # better alternative for threshold = 0.4 and batchsize = 128
         # optimizer = optim.Adam(model.parameters(), lr=0.00005) # better alternative for threshold = 0.4 and batchsize = 128
 
         criterion = torch.nn.CrossEntropyLoss()
@@ -576,7 +688,7 @@ class NeuralNetModel(object):
         metrics = [Binary_Classification()]  # Keep track of validation and training accuracy each epoch
         trainer = torchsample.modules.ModuleTrainer(model)
         print(type(trainer))
-
+        print(self.x_train.shape)
         trainer.compile(loss=criterion,
                         optimizer=optimizer,
                         metrics=metrics)
