@@ -5,8 +5,10 @@ import sqlite3
 import statistics as s
 import time
 import sys
-import math
-
+from sklearn import svm
+# TODO change default year 2018 to 2019 somehow
+# TODO change current year value accross the different feature creating tables
+# TODO setup xgboost training until recall stalls
 from collections import Counter
 from collections import defaultdict, OrderedDict
 from random import random
@@ -17,18 +19,17 @@ import matplotlib.pyplot as plt
 import feather  # For R-Data conversion
 import pandas as pd
 from matplotlib.legend_handler import HandlerLine2D
+
 # Sklearn imports
 import sklearn
 from sklearn import preprocessing, tree
 from sklearn import linear_model
-
-from sklearn.ensemble import BaggingClassifier
+from sklearn.ensemble import BaggingClassifier, RandomForestClassifier, ExtraTreesClassifier, GradientBoostingClassifier
 from sklearn.neighbors import KNeighborsClassifier
-from sklearn.ensemble import ExtraTreesClassifier  # For Classification
 from sklearn.externals import joblib
 from sklearn.multioutput import MultiOutputRegressor
 from sklearn.naive_bayes import GaussianNB
-from sklearn.metrics import roc_curve, auc, r2_score
+from sklearn.metrics import roc_curve, auc
 from sklearn.model_selection import StratifiedKFold, KFold
 from sklearn.model_selection import train_test_split, cross_val_score
 from sqlalchemy import create_engine
@@ -143,14 +144,14 @@ def create_database_based_on_set(database_name, match_type, new_db_name):
 
     # Reset indexes after dropping N/A values
     dataset = dataset.reset_index(drop=True)  # reset indexes if any more rows are dropped
-    dataset['year'].fillna(2018, inplace=True)
+    dataset['year'].fillna(2019, inplace=True)
     dataset = dataset.reset_index(drop=True)  # reset indexes if any more rows are dropped
 
     for i in dataset.index:
         print("We are at index {}".format(i))
         current_year = float(dataset.at[i, 'year'])
         if current_year == "":
-            dataset.at[i, 'year'] = float(2018)
+            dataset.at[i, 'year'] = float(2019)
 
     # Drop 3 set matches or 5 set amtches based on match_type argument
     if match_type == 3:
@@ -390,10 +391,15 @@ def tune_dt_max_features(x_train, y_train, x_test, y_test):
 
 def calculate_time_discount(discount_factor, current_year, game_year):
     time_since_the_match = abs(current_year - game_year)
-    if time_since_the_match == 1:
-        return discount_factor
-    else:
-        return (discount_factor ** time_since_the_match)
+    """
+          time_since_the_match = abs(current_year - game_year)
+        updated_factor = min(discount_factor, discount_factor ** time_since_the_match)
+
+        return updated_factor
+        """
+    updated_factor = min(discount_factor, discount_factor ** time_since_the_match)
+
+    return updated_factor
 
 
 # Used in prediction mode of Decision Stump Model
@@ -414,6 +420,8 @@ def preprocess_features_before_training(features, labels):
     # 3. Remove any duplicates (so we don't have any hard to find problems with dictionaries later
     x = features[::-1]
     y = labels[::-1]
+    # x = features
+    # y = labels
     # number_of_columns = x.shape[1] - 1
 
     # Before standardizing we want to take out the H2H column
@@ -460,6 +468,13 @@ def Stacking(model, X, y, test, n_fold):
     # print(train_pred.shape)
 
     return test_pred.reshape(-1, 1), train_pred
+
+
+def Stacking_with_probability_for_new_features(model, X, y, xNew):
+    model.fit(X=X, y=y)
+    xNew_pred = model.predict_proba(xNew)
+    print("Test set shape  after stacking class probability distributions is {}".format(xNew_pred.shape))
+    return xNew_pred
 
 
 # Helper function to do n-fold CV Stacked Generalization with class probability distributions
@@ -520,44 +535,39 @@ class Models(object):
         conn = sqlite3.connect(database_name + '.db')
 
         # The name on this table should be the same as the dataframe
-        dataset = pd.read_sql_query('SELECT * FROM updated_stats_v3', conn)
+        dataset = pd.read_sql_query('SELECT * FROM updated_stats_v6', conn)
 
+        print("Initial Dataset length is {}".format(len(dataset)))
         # This changes all values to numeric if sqlite3 conversion gave a string
         dataset = dataset.apply(pd.to_numeric, errors='coerce')
 
         # Print statements to visually test some values
         dataset.dropna(subset=['SERVEADV1'], inplace=True)  # drop invalid stats (22)
-        dataset.dropna(subset=['court_type'], inplace=True)  # drop invalid stats (616)
         dataset.dropna(subset=['H21H'], inplace=True)  # drop invalid stats (7)
         dataset.dropna(subset=['Number_of_games'], inplace=True)  # drop invalid stats (7)
 
+        dataset.dropna(subset=['court_type'], inplace=True)  # drop invalid stats (616)
+
+        print("Dataset length after dropping NA rows is {}".format(len(dataset)))
+
         # Reset indexes after dropping N/A values
         dataset = dataset.reset_index(drop=True)  # reset indexes if any more rows are dropped
-        dataset['year'].fillna(2018, inplace=True)
-        dataset = dataset.reset_index(drop=True)  # reset indexes if any more rows are dropped
+
         self.dataset = dataset
-        # print(self.dataset.isna().sum())
-        for i in self.dataset.index:
-            current_year = float(self.dataset.at[i, 'year'])
-            if current_year == "":
-                self.dataset.at[i, 'year'] = float(2018)
+
         # convert_dataframe_into_rdata(self.dataset, "finaldataset.feather")
-        # sys.exit()
         conn_players = sqlite3.connect('atp_players.db')
         self.players = pd.read_sql_query('SELECT * FROM atp_players', conn_players)
         self.players['ID_P'] = self.players['ID_P'].apply(pd.to_numeric)
-
         conn.close()
         conn_players.close()
 
-        # ec2 = boto3.resource('ec2', region_name='us-east-1')
-        # for instance in ec2.instances.all():
-        #   print(instance.id, instance.state)
+    # Respomsible for creating features from advanced stats database
+    # Takes the dataset created by FeatureExtraction and calculates required features for our model.
 
-    # Creates the feature stats from advanced stats database
     def create_feature_set(self, feature_set_name, label_set_name, labeling_method):
-        # Takes the dataset created by FeatureExtraction and calculates required features for our model.
-        # As of October 8: takes 40-45 minutes to complete the feature creation.
+        # As of March 1 2019: takes 60-70 minutes to complete the feature creation. (super efficient)
+
         common_opponents_exist = 0
         start_time = time.time()
         zero_common_opponents = 0
@@ -603,38 +613,29 @@ class Models(object):
         court_dict[6][4] = 0.24
         court_dict[6][5] = 0.24
         court_dict[6][6] = float(1)
-        print("ali")
-        print("stop")
-        # Bug Testing
-        # code to check types of our stats dataset columns
-        # with sqlite3.connect('stats.db', detect_types=sqlite3.PARSE_DECLTYPES) as conn:
-        #  show_deadline(conn, list(stats))
+        time_discount_factor = 0.8
 
-        # Start
+        # Start looping over the dataset in reverse to get all past common opponents.
         for i in reversed(self.dataset.index):
 
             print("We are on index {}".format(i))
             player1_id = self.dataset.at[i, "ID1"]
             player2_id = self.dataset.at[i, "ID2"]
-            if self.dataset.at[i, 'year'] == "":
-                self.dataset.at[i, 'year'] = 2018
 
-            # All games that two players have played
+            # print("Current PLAYER 1 ID {}".format(player1_id))
+            # print("Current PLAYER 2 ID {}".format(player2_id))
+
+            # All games that two players have played in the past
             player1_games = self.dataset.loc[
                 np.logical_or(self.dataset.ID1 == player1_id, self.dataset.ID2 == player1_id)]
 
             player2_games = self.dataset.loc[
                 np.logical_or(self.dataset.ID1 == player2_id, self.dataset.ID2 == player2_id)]
 
-            print(type(player1_games))
-
             # Get required information from current column
             curr_tournament = self.dataset.at[i, "ID_T"]
             current_court_id = self.dataset.at[i, "court_type"]
             current_year = float(self.dataset.at[i, 'year'])
-            if current_year == "":
-                current_year = float(2018)
-            time_discount_factor = 0.8
 
             total_number_of_games = self.dataset.at[i, "Number_of_games"]
             total_number_of_sets = self.dataset.at[i, "Number_of_sets"]
@@ -642,7 +643,6 @@ class Models(object):
 
             # Games played earlier than the current tournament we are investigating
             earlier_games_of_p1 = [game for game in player1_games.itertuples() if game.ID_T < curr_tournament]
-
             earlier_games_of_p2 = [game for game in player2_games.itertuples() if game.ID_T < curr_tournament]
 
             # Get past opponents of both players
@@ -655,9 +655,10 @@ class Models(object):
                 self.dataset[(self.dataset['ID1'] == player2_id) & (self.dataset['ID2'] == player1_id)].index.tolist())
 
             # If they did, we manually add player id's to their own opponent list so that intersection picks it up.
-            past_match_indexes = [x for x in m if x]
+            past_match_indexes = [x for x in m if x and x != i]
 
-            if len(past_match_indexes) > 1:
+            if len(past_match_indexes) > 0:
+                # print("Interesting example they have played in the past")
                 opponents_of_p1.append(player1_id)
                 opponents_of_p2.append(player2_id)
             sa = set(opponents_of_p1)
@@ -669,12 +670,14 @@ class Models(object):
             if len(common_opponents) == 0:
                 zero_common_opponents = zero_common_opponents + 1
                 # If they have zero common opponents, we cannot get features for this match
+                # print("There are no common opponents therefore we skip it.")
                 continue
 
             else:
                 if len(common_opponents) > 9:
                     ten_common_opponents = ten_common_opponents + 1
                 common_opponents_exist = common_opponents_exist + 1
+
                 # Find matches played against common opponents
                 player1_games_updated = [game for opponent in common_opponents for game in earlier_games_of_p1 if
                                          (player1_id == game.ID1 and opponent == game.ID2) or (
@@ -683,26 +686,19 @@ class Models(object):
                                          (player2_id == game.ID1 and opponent == game.ID2) or (
                                                  player2_id == game.ID2 and opponent == game.ID1)]
 
-                copponent_p2_df = pd.DataFrame(np.array(player2_games_updated),
-                                               columns=['Index', 'index', 'ID1', 'ID2', 'ID_T',
-                                                        'ID_R', 'ACES_1,', 'DF_1', 'TPW_1', 'ACES_2', 'DF_2',
-                                                        'TPW_2',
-                                                        'MT', 'FSP1', 'W1SP1', 'W2SP1', 'WRP1', 'FSP2',
-                                                        'W1SP2', 'W2SP2', 'WRP2',
-                                                        'WSP1', 'WSP2', 'TPWP1', 'TPWP2', 'SERVEADV1',
-                                                        'SERVEADV2', 'COMPLETE1',
-                                                        'COMPLETE2', 'BP1', 'BP2', 'Number_of_games',
-                                                        'Number_of_sets', 'H12H', 'H21H',
-                                                        'court_type', 'year',
-                                                        ])
+                # if len(player1_games_updated) != len(player2_games_updated):
+                #   print("This is an interesting example number of matches not the same")
 
-                convert_dataframe_into_rdata(copponent_p2_df, "p2_copponent.feather")
+                # print("Number of p1 common opponent games {}".format(len(player1_games_updated)))
+                # print("Number of p2 common opponent games {}".format(len(player2_games_updated)))
+
                 weights_of_p1 = defaultdict(list)
                 weights_of_p2 = defaultdict(list)
                 # The below calculations are used to devise an uncertainty value for this match.
+                # we first find the total weight for each player’s estimates with respect to each common opponent:
                 for opponent in common_opponents:
                     for game in player1_games_updated:
-                        if opponent == game.ID2 or opponent == game.ID1:
+                        if (opponent == game.ID2 or opponent == game.ID1) and opponent != player1_id:
                             #   print("Current Opponent {}".format(opponent))
                             #   print("Current Court Id {}".format(current_court_id))
                             #   print("Court Id of the game Id {}".format(game.court_type))
@@ -714,19 +710,38 @@ class Models(object):
                             weights_of_p1[opponent].append(
                                 court_dict[current_court_id][game.court_type] * calculate_time_discount(
                                     time_discount_factor, current_year, game.year))
+
                 for opponent in common_opponents:
                     for game in player2_games_updated:
-                        if opponent == game.ID2 or opponent == game.ID1:
+                        if (opponent == game.ID2 or opponent == game.ID1) and opponent != player2_id:
                             weights_of_p2[opponent].append(
                                 court_dict[current_court_id][game.court_type] * calculate_time_discount(
                                     time_discount_factor, current_year,
                                     game.year))
-                sum_of_weights = 0
-                for key in weights_of_p1.keys() & weights_of_p2.keys():
-                    sum_of_weights = sum_of_weights + (sum(weights_of_p1[key]) * sum(weights_of_p2[key]))
 
-                # Using all of the weighting, we devise a overall uncertainty value
+                # print("Player 1 weight dict: {}".format(weights_of_p1))
+                # print("Player 2 weight dict: {}".format(weights_of_p2))
+
+                sum_of_weights = 0
+                # The overall uncertainty is computed using the sum of the weights across all common opponents:
+
+                for key in weights_of_p1.keys() & weights_of_p2.keys():
+                    # print("Current key is {}. P1 weight is {} and P2 weight is {}".format(key,sum(weights_of_p1[key]),sum(weights_of_p2[key])))
+                    # print("stop")
+
+                    sum_of_weights = sum_of_weights + (sum(weights_of_p1[key]) * sum(weights_of_p2[key]))
+                    # print(sum_of_weights)
+
+                # print("Overall Uncertainty before matches between each other {}:".format(1/ sum_of_weights))
+
+                if player1_id in weights_of_p2.keys() and player2_id in weights_of_p1.keys():
+                    # print("P1 weight is {} and P2 weight is {}".format(sum(weights_of_p1[player2_id]),sum(weights_of_p2[player1_id])))
+
+                    sum_of_weights = sum_of_weights + (sum(weights_of_p1[player2_id]) * sum(weights_of_p2[player1_id]))
+
+                # Overall uncertainty of the features of the match is the inverse of the product
                 overall_uncertainty = 1 / sum_of_weights
+                # print("Overall Uncertainty {}:".format(overall_uncertainty))
 
                 # Get the difference of weighted average for each feature.
                 serveadv_1, serveadv_2, complete_1, complete_2, w1sp_1, w1sp_2, bp_1, bp_2, aces_1, aces_2, h2h_1, \
@@ -743,7 +758,7 @@ class Models(object):
 
                         [serveadv_1 - serveadv_2, complete_1 - complete_2, w1sp_1 - w1sp_2, aces_1 - aces_2,
                          bp_1 - bp_2, tpw1 - tpw2, h2h_1 - h2h_2])
-
+                    print(feature)
                     # Different label methods. Options = outcome or game spread
                     if labeling_method == 'game_spread':
                         label = int(game_spread)
@@ -764,7 +779,7 @@ class Models(object):
                     feature = np.array(
                         [serveadv_2 - serveadv_1, complete_2 - complete_1, w1sp_2 - w1sp_1, aces_2 - aces_1,
                          bp_2 - bp_1, tpw2 - tpw1, h2h_2 - h2h_1])
-
+                    print(feature)
                     if labeling_method == 'game_spread':
                         label = -int(game_spread)
                     else:
@@ -775,6 +790,7 @@ class Models(object):
                     else:
 
                         x.append(feature)
+
                         y.append(label)
                         feature_uncertainty_dict[tuple(feature.tolist() + [label])] = overall_uncertainty
 
@@ -795,28 +811,34 @@ class Models(object):
     # Trains, develops and makes predictions for Stacked generalization ensemble and NN models
     def train_model(self, dataset_name, labelset_name, number_of_features, development_mode,
                     prediction_mode, historical_tournament, training_mode,
-                    test_given_model, save, tournament_pickle_file_name, court_type,
+                    test_given_model, save, tournament_pickle_file_name, current_court_id,
                     uncertainty_used, neural_net_model_name, scraping_mode, using_neural_net=False):
 
         features = []
         labels = []
         fraction_of_matches = 0.4
-        print("The current uncertainty threshold is: {}".format(fraction_of_matches))
+
+        print("The current fraction of matches we are getting is: {}".format(fraction_of_matches))
         if uncertainty_used:
             print("We are currenty working with data set {} and label set {}".format(dataset_name, labelset_name))
             pickle_in = open(dataset_name, "rb")
             features_uncertainty_dict = pickle.load(pickle_in)
 
+            print("Training Set size is {}".format(len(features_uncertainty_dict)))
             # sort the dictionary by the uncertainty of matches
             sorted_dict = {r: features_uncertainty_dict[r] for r in
                            sorted(features_uncertainty_dict, key=features_uncertainty_dict.get, reverse=False)}
 
             threshold_uncertainty_key = list(sorted_dict)[int(math.floor(len(sorted_dict) * fraction_of_matches))]
             threshold_uncertainty = features_uncertainty_dict[threshold_uncertainty_key]
-            print()
+
             print("Our threshold uncertainty will be {}".format(threshold_uncertainty))
             # get the required percentage of least uncertain matches
             for k, uncertainty in features_uncertainty_dict.items():
+                print(k)
+                print(uncertainty)
+                print("stop")
+
                 if uncertainty < threshold_uncertainty:
                     features_and_labels = list(k)
                     features.append(np.asarray(features_and_labels[0:7]))
@@ -844,7 +866,6 @@ class Models(object):
         print("Size of our first dimension is {}.".format(np.size(x_scaled_no_duplicates, 0)))
         print("Size of our second dimension is {}.".format(np.size(x_scaled_no_duplicates, 1)))
         print("The number of UNIQUE features in our feature space is {}".format(len(x_scaled_no_duplicates)))
-        print("New label set size must be {}.".format(len(y_no_duplicates)))
 
         label_counter = collections.Counter(y_no_duplicates)
         print("Number of labels with label == 1 is {}".format(label_counter[1]))
@@ -853,6 +874,12 @@ class Models(object):
         # Create train and test sets for all 3 options.
         x_train, x_test, y_train, y_test = train_test_split(x_scaled_no_duplicates, y_no_duplicates, test_size=0.2,
                                                             shuffle=False)
+
+        print("Original Training Set size before entering modes is {}".format(len(x_train)))
+        print("Original Test Set size before entering modes is {}".format(len(x_test)))
+
+        print("ali")
+        print("stop")
 
         if development_mode:
             print("We are in development mode.")
@@ -889,7 +916,7 @@ class Models(object):
 
             match_uncertainty_dict = collections.OrderedDict()
 
-            prediction_threshold = 0.2
+            prediction_threshold = 0.5
             print("We are investigating {}.".format(tournament_pickle_file_name))
             odds_file = loads_odds_into_a_list(tournament_pickle_file_name)
             print(odds_file)
@@ -899,11 +926,11 @@ class Models(object):
 
             if scraping_mode == 1:  # When he have additional opening odds)
                 p1_list, p2_list, results, match_to_results_dictionary, match_to_odds_dictionary, match_to_initial_odds_dictionary = read_oddsportal_data(
-                    odds_file, self.players, scraping_mode, 9, 6, 7, 8)
+                    odds_file, self.players, scraping_mode, odds_length=9, p1_index=6, p2_index=7, result_index=8)
 
             elif scraping_mode == 2:  # When we only have the final odds
                 p1_list, p2_list, results, match_to_results_dictionary, match_to_odds_dictionary = read_oddsportal_data(
-                    odds_file, self.players, scraping_mode, 7, 4, 5, 6)
+                    odds_file, self.players, scraping_mode, odds_length=7, p1_index=4, p2_index=5, result_index=6)
                 match_to_initial_odds_dictionary = OrderedDict()
                 print(len(p1_list))
                 print(len(p2_list))
@@ -914,16 +941,20 @@ class Models(object):
 
             else:  # Mode where we have no results and no opening odds. Scraping Mode 3
                 p1_list, p2_list, match_to_odds_dictionary = read_oddsportal_data(odds_file, self.players,
-                                                                                  scraping_mode, 6, 4, 5, 0)
+                                                                                  scraping_mode, odds_length=6,
+                                                                                  p1_index=4, p2_index=5,
+                                                                                  result_index=0)
                 match_to_initial_odds_dictionary = OrderedDict()
                 match_to_results_dictionary = OrderedDict()
 
             # Get the list of [match, calculated feature, calculated uncertainty] for each match
             match_features_uncertainty_list = [
-                self.create_prediction_features(p1, p2, court_type, 20000, number_of_features) for i, (p1, p2) in
+                self.create_prediction_features(p1, p2, current_court_id, 20000, number_of_features) for i, (p1, p2) in
                 enumerate(zip(p1_list, p2_list))]
             print('When the features from prediction is first created, its size is {}'.format(
                 len(match_features_uncertainty_list)))
+
+            print(match_features_uncertainty_list)
 
             for i, (match, feature, uncertainty) in enumerate(match_features_uncertainty_list):
                 if uncertainty > prediction_threshold:
@@ -985,14 +1016,39 @@ class Models(object):
             if using_neural_net:
 
                 # change labeling from 1-2 format to 1-0 format
-                zero_one_labels_for_nn = np.asarray([1 if label == 1 else 0 for label in list(y_no_duplicates)])
+                zero_one_labels_for_nn = np.asarray([1 if label == 1 else 0 for label in list(y_train)])
 
-                linear_clf = make_nn_predictions(neural_net_model_name, tournament_pickle_file_name,
-                                                 x_scaled_no_duplicates, zero_one_labels_for_nn,
-                                                 features_from_prediction_final, final_results,
-                                                 match_to_results_dictionary, match_to_odds_dictionary, self.players,
-                                                 match_uncertainty_dict, match_to_initial_odds_dictionary,
-                                                 scraping_mode)
+                # x_train_original_df = pd.DataFrame(x_train)
+
+                x_train_df, x_test_df = self.add_class_probabilities_to_features(
+                    ExtraTreesClassifier(n_estimators=20),
+                    x_train, features_from_prediction_final, y_train)
+
+                x_train_df, x_test_df = self.add_class_probabilities_to_features(
+                    GaussianNB(), x_train_df.values, x_test_df.values, zero_one_labels_for_nn)
+                x_train_df, x_test_df = self.add_class_probabilities_to_features(
+                    KNeighborsClassifier(n_neighbors=5), x_train_df.values, x_test_df.values, zero_one_labels_for_nn)
+
+                x_train_df, x_test_df = self.add_class_probabilities_to_features(
+                    BaggingClassifier(base_estimator=tree.DecisionTreeClassifier(max_depth=4), n_estimators=20,
+                                      random_state=7), x_train_df.values, x_test_df.values, zero_one_labels_for_nn)
+
+                print(x_train_df.shape)
+                print(x_test_df.shape)
+                print("ali")
+                print("stop")
+
+                # x_train_df.values, zero_one_labels_for_nn,
+                # x_test_df.values, final_results,
+
+                ROI = make_nn_predictions(neural_net_model_name, tournament_pickle_file_name,
+                                          x_train_df.values, zero_one_labels_for_nn,
+                                          x_test_df.values, final_results,
+                                          match_to_results_dictionary, match_to_odds_dictionary, self.players,
+                                          match_uncertainty_dict, match_to_initial_odds_dictionary,
+                                          scraping_mode)
+
+                return ROI
 
             else:
                 # WARNING: BLOWING UP THE FEATURE SPACE
@@ -1081,18 +1137,10 @@ class Models(object):
 
         if training_mode:
             print("We are in training mode")
-            # # print("Neural Net Model")
-            #   NeuralNetModel(x_scaled_no_duplicates, y_no_duplicates.reshape(-1), batchsize=128, dev_set_size=0.5,
-            #           threshold=str(fraction_of_matches), text_file=False)
 
-            # Bagged_Decision_Trees(5, x_scaled_no_duplicates, y_no_duplicates, 10)
             ols = linear_model.LogisticRegression()
 
             regr = MultiOutputRegressor(linear_model.LinearRegression())
-
-            # linear_clf = sklearn.tree.DecisionTreeClassifier(max_depth=8)
-
-            # linear_clf = ExtraTreesClassifier(n_estimators=10)
 
             seed = 7
 
@@ -1103,7 +1151,7 @@ class Models(object):
             # Try the Decision Stump with class probabilities as features. Get num_iterations * 2 class probability features  for each item training trees by randomly sampling %50
             x_train_original_df = pd.DataFrame(x_train)
             x_test_original_df = pd.DataFrame(x_test)
-
+            """
             # WARNING: BLOWING UP THE FEATURE SPACE
             dt_prob_x_train, dt_prob_x_test = self.get_decision_stump_class_probabilities(x_train=x_train,
                                                                                           y_train=y_train,
@@ -1117,26 +1165,30 @@ class Models(object):
             # Only probabilities
             print("USING 100 DECISION STUMP PROBABILITY DISTRIBUTIONS")
 
-            """self.calculate_accuracy_and_roc_score(ols, dt_prob_x_train,
+            self.calculate_accuracy_and_roc_score(ols, dt_prob_x_train,
                                                   y_train,
                                                   dt_prob_x_test, y_test)
-            """
+           
             self.multi_response_regressor_eval(dt_prob_x_train,
-                                                  y_train,
-                                                  dt_prob_x_test, y_test)
+                                               y_train,
+                                               dt_prob_x_test, y_test)
+
+            
+
             print(pd.concat([dt_prob_x_train, x_train_original_df], axis=1).shape)
 
             # Probabilities + original features
             print("USING 100 Decision Stump ROBABILITY DISTRIBUTIONS + ORIGINAL FEATURES ")
 
-            """
             self.calculate_accuracy_and_roc_score(ols, pd.concat([dt_prob_x_train, x_train_original_df], axis=1),
                                                   y_train,
                                                   pd.concat([dt_prob_x_test, x_test_original_df], axis=1), y_test)
-            """
+
+            
             self.multi_response_regressor_eval(pd.concat([dt_prob_x_train, x_train_original_df], axis=1),
-                                                  y_train,
-                                                  pd.concat([dt_prob_x_test, x_test_original_df], axis=1), y_test)
+                                               y_train,
+                                               pd.concat([dt_prob_x_test, x_test_original_df], axis=1), y_test)
+           
             # Try the Decision Stump Model. Get 100 predictions for each item training trees by randomly sampling %50
 
             dt_x_train, dt_x_test = self.get_decision_stump_predictions(x=x_train, y=y_train,
@@ -1149,40 +1201,36 @@ class Models(object):
 
             # Get training and test accuracy and ROC Score
             print("USING  DECISION STUMP PREDICTIONS")
-
+            
             self.multi_response_regressor_eval(pd.DataFrame(dt_x_train),
-                                                  y_train,
+                                               y_train,
                                                pd.DataFrame(dt_x_test), y_test)
-            """
+            
+
             self.calculate_accuracy_and_roc_score(ols, dt_x_train,
                                                   y_train,
                                                   dt_x_test, y_test)
-            """
+
             print("USING PREDICTIONS + ORIGINAL FEATURES")
 
-            """
-              self.calculate_accuracy_and_roc_score(ols,
+            self.calculate_accuracy_and_roc_score(ols,
                                                   pd.concat([pd.DataFrame(dt_x_train), x_train_original_df], axis=1),
                                                   y_train,
                                                   pd.concat([pd.DataFrame(dt_x_test), x_test_original_df], axis=1),
                                                   y_test)
-
-            """
-
-
+           
             self.multi_response_regressor_eval(pd.concat([pd.DataFrame(dt_x_train), x_train_original_df], axis=1),
                                                y_train,
                                                pd.concat([pd.DataFrame(dt_x_test), x_test_original_df], axis=1),
                                                y_test)
-
+            """
             # self.calculate_accuracy_over_threshold(linear_clf, dt_x_train,
             #                                      y_train,
             #                                     dt_x_test, y_test)
 
             # Adding class probabilities from different algorithms to our feature set ( LEVEL 0)
             x_train_df, x_test_df = self.add_class_probabilities_to_features(
-                ExtraTreesClassifier(n_estimators=20),
-                x_train, x_test, y_train)
+                ExtraTreesClassifier(n_estimators=20), x_train, x_test, y_train)
 
             x_train_df, x_test_df = self.add_class_probabilities_to_features(
                 GaussianNB(), x_train_df.values, x_test_df.values, y_train)
@@ -1190,8 +1238,13 @@ class Models(object):
                 KNeighborsClassifier(n_neighbors=5), x_train_df.values, x_test_df.values, y_train)
 
             x_train_df, x_test_df = self.add_class_probabilities_to_features(
+                GradientBoostingClassifier(), x_train_df.values, x_test_df.values, y_train)
+
+            """
+            x_train_df, x_test_df = self.add_class_probabilities_to_features(
                 BaggingClassifier(base_estimator=tree.DecisionTreeClassifier(max_depth=4), n_estimators=20,
                                   random_state=seed), x_train_df.values, x_test_df.values, y_train)
+            """
 
             new_nn_train = pd.concat([x_train_df, x_test_df], axis=0)
             new_nn_labels = pd.concat([pd.DataFrame(y_train), pd.DataFrame(y_test)], axis=0)
@@ -1200,35 +1253,44 @@ class Models(object):
             print(new_nn_train.values.shape)
             print(new_nn_labels.values.shape)
 
+            print("ali")
+            print('stop')
             # We stack them and run another model on top of it
 
-            print("USING 5 BASE LEVEL CLASSIFIERS PROBABILITY DISTRIBUTIONS + ORIGINAL FEATURES")
+            print("USING 5 BASE LEVEL CLASSIFIERS ON PROBABILITY DISTRIBUTIONS + ORIGINAL FEATURES")
 
             self.multi_response_regressor_eval(x_train_df,
                                                y_train,
                                                x_test_df, y_test)
 
-            """
+            print("USING 5 BASE LEVEL CLASSIFIERS ON PROBABILITY DISTRIBUTIONS + ORIGINAL FEATURES - Accuracy and ROC")
+
             self.calculate_accuracy_and_roc_score(ols,
                                                   x_train_df,
                                                   y_train,
                                                   x_test_df, y_test)
-             """
-            print("USING 5 BASE LEVEL CLASSIFIERS PROBABILITY DISTRIBUTIONS")
+
+            print("USING 5 BASE LEVEL CLASSIFIERS ON PROBABILITY DISTRIBUTIONS")
 
             self.multi_response_regressor_eval(x_train_df[x_train_df.columns[-8:]].copy(),
                                                y_train,
                                                x_test_df[x_test_df.columns[-8:]].copy(), y_test)
 
-            NeuralNetModel(new_nn_train.values, zero_one_labels_for_nn.reshape(-1), batchsize=128, dev_set_size=0.3,
-                       threshold=str(fraction_of_matches), text_file=False)
+            print("USING 5 BASE LEVEL CLASSIFIERS ON ORIGINAL FEATURES")
+
+            self.multi_response_regressor_eval(x_train_df[x_train_df.columns[0:7]].copy(),
+                                               y_train,
+                                               x_test_df[x_test_df.columns[0:7]].copy(), y_test)
+
+            NeuralNetModel(new_nn_train.values, zero_one_labels_for_nn.reshape(-1), batchsize=128, dev_set_size=0.15,
+                           threshold=str(fraction_of_matches), text_file=False)
 
     def multi_response_regressor_eval(self, xtrain, ytrain, xtest, ytest):
 
         ytrain_1 = [1 if label == 1 else 0 for label in list(ytrain)]
-        ytrain_2 = [1 if label == 2 else 0 for label in list(ytrain)]
+        ytrain_2 = [1 if label == 0 else 0 for label in list(ytrain)]
         ytest_1 = [1 if label == 1 else 0 for label in list(ytest)]
-        ytest_2 = [1 if label == 2 else 0 for label in list(ytest)]
+        ytest_2 = [1 if label == 0 else 0 for label in list(ytest)]
 
         L1 = linear_model.LinearRegression()
         L2 = linear_model.LinearRegression()
@@ -1261,6 +1323,17 @@ class Models(object):
                 final_test_labels.append(2)
 
         print("MLR Testing Accuracy is {}".format((np.asarray(final_test_labels) == ytest).sum() / len(ytest)))
+
+    # add class probabilities to derived features from unseen data (matches)
+
+    def add_class_probabilities_to_new_features(self, model, x_train, xNew, y_train):
+        # x_train_df = pd.DataFrame(x_train)
+        xNew_df = pd.DataFrame(xNew)
+        xNew_pred = Stacking_with_probability_for_new_features(model, x_train, y_train, xNew)
+
+        xNew_df = pd.concat([xNew_df, pd.DataFrame(xNew_pred[:, 0])], axis=1)
+        xNew_df = pd.concat([xNew_df, pd.DataFrame(xNew_pred[:, 1])], axis=1)
+        return xNew_df
 
     # adds class probabilities to original feature set
 
@@ -1303,11 +1376,11 @@ class Models(object):
         print("Testing  Prediction Accuracy {}".format(linear_clf.score(test_pred, y_test)))
 
         # ROC SCORES
-        false_positive_rate, true_positive_rate, thresholds = roc_curve(y_train, y_train_pred, pos_label=2)
+        false_positive_rate, true_positive_rate, thresholds = roc_curve(y_train, y_train_pred)
         roc_auc = auc(false_positive_rate, true_positive_rate)
         print("ROC SCORE for training is : {}".format(roc_auc))
 
-        false_positive_rate, true_positive_rate, thresholds = roc_curve(y_test, y_test_pred, pos_label=2)
+        false_positive_rate, true_positive_rate, thresholds = roc_curve(y_test, y_test_pred)
         roc_auc = auc(false_positive_rate, true_positive_rate)
         print("ROC SCORE for testing is : {}".format(roc_auc))
 
@@ -1332,6 +1405,8 @@ class Models(object):
         col = 0  # column number to fill in dataframes
         start_time = time.time()
         for i in range(num_iterations):
+            # This split is to create randomization between different training sets
+
             data_train, data_test, labels_train, labels_test = train_test_split(x_train, y_train, test_size=test_size,
                                                                                 shuffle=True)
             clf = sklearn.tree.DecisionTreeClassifier(max_depth=depth)
@@ -1382,6 +1457,7 @@ class Models(object):
 
     def get_average_features(self, player1_id, player2_id, player1_games_updated, player2_games_updated, court_dict,
                              current_court_id, time_discount_factor, current_year):
+
         list_of_serveadv_1 = [game.SERVEADV1 * court_dict[current_court_id][
             game.court_type] * calculate_time_discount(time_discount_factor, current_year, game.year)
                               if game.ID1 == player1_id else game.SERVEADV2 * court_dict[current_court_id][
@@ -1537,19 +1613,22 @@ class Models(object):
         court_dict[5][4] = float(1)
         court_dict[5][5] = float(1)
         court_dict[5][6] = 0.24
-        court_dict[6][1] = float(1)  # 1 is Acyrlic
+        court_dict[6][1] = float(1)  # 6 is Acyrlic
         court_dict[6][2] = 0.28
         court_dict[6][3] = 0.35
         court_dict[6][4] = 0.24
         court_dict[6][5] = 0.24
         court_dict[6][6] = float(1)
 
-        current_year = 2018
+        current_year = 2019
         time_discount_factor = 0.8
 
         # All games that two players have played
         player1_games = self.dataset.loc[np.logical_or(self.dataset.ID1 == player1_id, self.dataset.ID2 == player1_id)]
         player2_games = self.dataset.loc[np.logical_or(self.dataset.ID1 == player2_id, self.dataset.ID2 == player2_id)]
+        #
+        #       convert_dataframe_into_rdata(player1_games, "p1.feather")
+        #      convert_dataframe_into_rdata(player2_games, "p2.feather")
 
         # This value should be higher than anything else curr_tournament = dataset.at[i, "ID_T"]
         earlier_games_of_p1 = [game for game in player1_games.itertuples() if
@@ -1557,6 +1636,11 @@ class Models(object):
 
         earlier_games_of_p2 = [game for game in player2_games.itertuples() if
                                game.ID_T < curr_tournament]
+
+        print(len(player1_games))
+        print(len(player2_games))
+        print(len(earlier_games_of_p1))
+        print(len(earlier_games_of_p2))
 
         opponents_of_p1 = [
             games.ID2 if (player1_id == games.ID1) else
@@ -1566,15 +1650,15 @@ class Models(object):
             games.ID2 if (player2_id == games.ID1) else
             games.ID1 for games in earlier_games_of_p2]
 
+        print("stop")
         # We check if these two players have played before
         m = self.dataset[(self.dataset['ID1'] == player1_id) & (self.dataset['ID2'] == player2_id)].index.tolist()
         m.append(
             self.dataset[(self.dataset['ID1'] == player2_id) & (self.dataset['ID2'] == player1_id)].index.tolist())
 
-        # If they did, we manually add player id's to their own opponent list so that intersection picks it up.
+        # If they did, we manually add player id's to their own list so that the intersection picks it up.
         past_match_indexes = [x for x in m if x]
-
-        if len(past_match_indexes) > 1:
+        if len(past_match_indexes) > 0:
             opponents_of_p1.append(player1_id)
             opponents_of_p2.append(player2_id)
         sa = set(opponents_of_p1)
@@ -1582,6 +1666,10 @@ class Models(object):
 
         # Find common opponents that these players have faced
         common_opponents = sa.intersection(sb)
+        # common_opponents.remove(54368)
+        # common_opponents.remove(45774)
+
+        print((common_opponents))
 
         if len(common_opponents) > 0:
 
@@ -1596,21 +1684,23 @@ class Models(object):
             weights_of_p2 = defaultdict(list)
             for opponent in common_opponents:
                 for game in player1_games_updated:
-                    if opponent == game.ID2 or opponent == game.ID1:
-                        #   print("Current Opponent {}".format(opponent))
-                        #   print("Current Court Id {}".format(current_court_id))
-                        #   print("Court Id of the game Id {}".format(game.court_type))
-                        #   print("Current Year {}".format(current_year))
-                        #   print("Game Year {}".format(game.year))
-                        #   print("Surface matrix weight {}".format(court_dict[current_court_id][game.court_type]))
-                        #  print("Time Discount {}".format(
-                        #    calculate_time_discount(time_discount_factor, current_year, game.year)))
+                    if (opponent == game.ID2 or opponent == game.ID1) and opponent != player1_id:
+                        # print("Current Opponent {}".format(opponent))
+                        # print("Current Court Id {}".format(current_court_id))
+                        # print("Court Id of the game Id {}".format(game.court_type))
+                        # print("Current Year {}".format(current_year))
+                        # print("Game Year {}".format(game.year))
+                        # print("Surface matrix weight {}".format(court_dict[current_court_id][game.court_type]))
+                        # print("Time Discount {}".format(calculate_time_discount(time_discount_factor, current_year, game.year)))
                         weights_of_p1[opponent].append(court_dict[current_court_id][
                                                            game.court_type] * calculate_time_discount(
                             time_discount_factor, current_year, game.year))
+
+            # print("weight of opponent {} is {}".format(opponent,weights_of_p1[opponent]))
+            # print("weights of p1 {}".format(weights_of_p1))
             for opponent in common_opponents:
                 for game in player2_games_updated:
-                    if opponent == game.ID2 or opponent == game.ID1:
+                    if (opponent == game.ID2 or opponent == game.ID1) and opponent != player2_id:
                         #   print("Current Opponent {}".format(opponent))
                         #   print("Current Court Id {}".format(current_court_id))
                         #   print("Court Id of the game Id {}".format(game.court_type))
@@ -1619,14 +1709,33 @@ class Models(object):
                         #   print("Surface matrix weight {}".format(court_dict[current_court_id][game.court_type]))
                         #  print("Time Discount {}".format(
                         #    calculate_time_discount(time_discount_factor, current_year, game.year)))
+                        # print(court_dict[current_court_id][game.court_type])
+                        # print(calculate_time_discount(time_discount_factor, current_year, game.year))
+
+                        # print(court_dict[current_court_id][game.court_type] * calculate_time_discount(
+                        #     time_discount_factor, current_year, game.year))
+                        # print(float(court_dict[current_court_id][game.court_type] * calculate_time_discount(
+                        #    time_discount_factor, current_year, game.year)))
+
                         weights_of_p2[opponent].append(court_dict[current_court_id][
                                                            game.court_type] * calculate_time_discount(
                             time_discount_factor, current_year, game.year))
             sum_of_weights = 0
+            print("weights of p1 {}".format(weights_of_p1))
+            print("weights of p2 {}".format(weights_of_p2))
+
             for key in weights_of_p1.keys() & weights_of_p2.keys():
-                # print(key, weights_of_p1[key], weights_of_p2[key])
+                print(key, weights_of_p1[key], weights_of_p2[key])
                 sum_of_weights = sum_of_weights + (sum(weights_of_p1[key]) * sum(weights_of_p2[key]))
+            print("The uncertainty before taking in matches between each other is {}".format(1 / sum_of_weights))
+
+            if player1_id in weights_of_p2.keys() and player2_id in weights_of_p1.keys():
+                print(weights_of_p1[player2_id], weights_of_p2[player1_id])
+
+                sum_of_weights = sum_of_weights + (sum(weights_of_p1[player2_id]) * sum(weights_of_p2[player1_id]))
+
             overall_uncertainty = 1 / sum_of_weights
+            print("The final uncertainty is {}.".format(overall_uncertainty))
 
             serveadv_1, serveadv_2, complete_1, complete_2, w1sp_1, w1sp_2, bp_1, bp_2, aces_1, aces_2, h2h_1, \
             h2h_2, tpw1, tpw2 = self.get_average_features(player1_id, player2_id, player1_games_updated,
@@ -1643,12 +1752,12 @@ class Models(object):
                 # Element 3 = overall uncertainty
                 return [tuple([player1_id, player2_id]), np.zeros([number_of_features, ]), overall_uncertainty]
 
-
             else:
 
                 feature = np.array(
                     [serveadv_1 - serveadv_2, complete_1 - complete_2, w1sp_1 - w1sp_2, aces_1 - aces_2,
                      bp_1 - bp_2, tpw1 - tpw2, h2h_1 - h2h_2])
+                print(feature)
                 return [tuple([player1_id, player2_id]), feature, overall_uncertainty]
         else:
             print("The players {} and {} do not have enough common opponents to make predictions.".format(player1_id,
@@ -1656,25 +1765,40 @@ class Models(object):
             return [tuple([player1_id, player2_id]), np.zeros([number_of_features, ]), 10000]
 
 
-DT = Models("updated_stats_v3")  # Initalize the model class with our sqlite3 advanced stats database
+DT = Models("updated_stats_v6")  # Initalize the model class with our sqlite3 advanced stats database
 
 # To create the feature and label space
-# data_label = DT.create_feature_set('uncertainty_dict_v15.txt', 'label_12.txt', labeling_method="outcome")
+data_label = DT.create_feature_set('uncertainty_dict_v19.txt', 'label_v19.txt', labeling_method="outcome")
 
-DT.train_model('uncertainty_dict_v15.txt', 'label_v12_short.txt',
-               number_of_features=7,
-               development_mode=False,
-               prediction_mode=True, historical_tournament=True,
-               save=False,
-               training_mode=False,
-               test_given_model=False,
-               tournament_pickle_file_name='aus_open_2019.pkl',  # kpt.pth.015adagrad_good.tar'
-               court_type=1, uncertainty_used=True, neural_net_model_name='ckpt.pth.015adagrad_good.tar',
-               scraping_mode=2,
-               using_neural_net=True)
+DT.create_prediction_features(45774, 54368, 2, 20000, 15)
+"""
+roi = DT.train_model('uncertainty_dict_v18.txt', 'label_v18.txt',
+                     number_of_features=15,
+                     development_mode=False,
+                     prediction_mode=False, historical_tournament=True,
+                     save=False,
+                     training_mode=True,
+                     test_given_model=False,
+                     tournament_pickle_file_name='antipolis2019.pkl',  # kpt.pth.015adagrad_good.tar'
+                     current_court_id=2, uncertainty_used=True, neural_net_model_name='ckpt.pthupdated2.tar',
+                     scraping_mode=2,
+                     using_neural_net=True)
+
+
+roi = DT.train_model('uncertainty_dict_v17.txt', 'label_v17.txt',
+                     number_of_features=15,
+                     development_mode=False,
+                     prediction_mode=True, historical_tournament=True,
+                     save=False,
+                     training_mode=False,
+                     test_given_model=False,
+                     tournament_pickle_file_name='antipolis2019.pkl',  # kpt.pth.015adagrad_good.tar'
+                     current_court_id=2, uncertainty_used=True, neural_net_model_name='ckpt.pthupdated2.tar',
+                     scraping_mode=2,
+                     using_neural_net=True)
 
 # WIMBLEDON 2018
-"""
+
 predictions, result_dict = DT.train_model('data_v12_short.txt', 'label_v12_short.txt',
                                                          number_of_features=7,
                                                          development_mode=False,
