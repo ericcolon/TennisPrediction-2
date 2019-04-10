@@ -196,7 +196,13 @@ def make_nn_predictions(filename, tournament_pickle_file_name, x_scaled_no_dupli
     total_bankroll = 100
     initial_bankroll = total_bankroll
     total_amount_of_bet = 0
-    tournament_name = "miaminew3.txt"
+    tournament_name = "testing1.txt"
+
+    counter = 0
+    counter_2 = 0
+    bankroll_list = []
+    bankroll_list.append(initial_bankroll)
+
     f = open(tournament_name, "w+")
 
     if scraping_mode == 1 or scraping_mode == 2:
@@ -219,6 +225,7 @@ def make_nn_predictions(filename, tournament_pickle_file_name, x_scaled_no_dupli
     calculate_roc_score(y_test, y_pred, 'train')
 
     f.write(tournament_name + '\n')
+    f.write("Filename is: {}\n".format(filename))
     f.write("Training accuracy {}\n".format(float(np.count_nonzero(y_pred == y_test)) / float(len(y_test))))
 
     # If we have results + opening odds + final odds
@@ -342,8 +349,6 @@ def make_nn_predictions(filename, tournament_pickle_file_name, x_scaled_no_dupli
         kelly_uncertainty_dict = {match: 1 - (float(uncertainty) / max(list(match_uncertainty_dict.values()))) for
                                   match, uncertainty in match_uncertainty_dict.items()}
 
-        print("ali")
-        print("stop")
         for i, (feature, result) in enumerate(zip(features_from_prediction_final, final_results)):
 
             class_predictions = linear_clf(Variable(torch.from_numpy(feature).float()))
@@ -373,11 +378,7 @@ def make_nn_predictions(filename, tournament_pickle_file_name, x_scaled_no_dupli
             player1 = players[players['ID_P'] == list(match)[0]].iloc[0]['NAME_P']
             player2 = players[players['ID_P'] == list(match)[1]].iloc[0]['NAME_P']
 
-            f.write("MATCH NUMBER {}. Uncertainty: {}\n".format(i, uncertainty))
-            if (uncertainty < 0.2):
-                f.write("This uncertainty means the quality of match features is GOOD.\n".format(i, uncertainty))
-            else:
-                f.write("This uncertainty means the quality of match features is NOT GOOD.\n".format(i, uncertainty))
+            f.write("\nMATCH NUMBER {}. Uncertainty: {}\n".format(i, uncertainty))
 
             match_analysis = "Prediction for match {} - {} was {}. The result was {}.".format(
                 player1, player2, prediction, result)
@@ -404,33 +405,51 @@ def make_nn_predictions(filename, tournament_pickle_file_name, x_scaled_no_dupli
             q_int = [float(1 - prob) for prob in p_int]
             kelly = [((p_int[i] * (odds_int[i] - 1)) - q_int[i]) / (odds_int[i] - 1) for i in range(len(odds_int))]
 
-            print("Remaining Bankroll is {}".format(total_bankroll))
-            print("Current total winnings is {}".format(total_winnings))
+            f.write("Remaining Bankroll is {}\n".format(total_bankroll))
+            f.write("Current total winnings is {}\n".format(total_winnings))
+            print("MATCH NUMBER {}. Uncertainty: {}".format(i, uncertainty))
+            f.write(match_analysis + "\n")
+
+            # f.write("INITIAL bookmaker odds and probabilities:" + "\n")
+
+            f.write("FINAL bookmaker odds:" + "\n")
+            f.write(bookmaker_odds + "\n")
+            # f.write(bookmaker_probabilities + "\n" + "\n")
+
+            f.write("MODEL odds probabilities:" + "\n")
+            f.write(our_probabilities + "\n")
             print(match_analysis)
             print(our_probabilities)
             print(bookmaker_odds)
 
             kelly_confidence_value = kelly_uncertainty_dict[tuple(match)]
-            print("Kelly results are {}".format(kelly))
+            f.write("Kelly results are {}\n".format(kelly))
 
-            print("Our Current Kelly Confidence Value for this Match is {}".format(kelly_confidence_value))
+            f.write("Our Current Kelly Confidence Value for this Match is {}\n".format(kelly_confidence_value))
             odds_chosen = ""
 
             for i in range(len(kelly)):
                 if kelly[i] < 0:
                     continue
                 else:
-                    print("Current Kelly {}".format(kelly[i]))
+
+                    f.write("Current Kelly {}\n".format(kelly[i]))
                     # print("The odds {}".format(float(odds_int[i])))
-                    odds_chosen = "The odds we chose to bet was {}".format(float(odds_int[i]))
+                    odds_chosen = "The odds we chose to bet was {} for player {}.\n".format(float(odds_int[i]), i)
                     print(odds_chosen)
+
+                    if prediction == abs(i - 1):
+                        counter = counter + 1
+
+                    if prediction == abs(i - 1) == result:
+                        counter_2 = counter_2 + 1
 
                     # TODO TRY USING OUR PREDICTION AS A FACTOR IN KELLY CONFIDENCE VALUE
 
                     bet = kelly[i] * total_bankroll * kelly_confidence_value
                     total_amount_of_bet = total_amount_of_bet + bet
-                    print(
-                        "The bet we are putting, which is calculated as {} * {} * {} ,is: {}".format(
+                    f.write(
+                        "The bet we are putting, which is calculated as {} * {} * {} ,is: {}\n".format(
                             kelly[i], total_bankroll, kelly_confidence_value, bet))
 
                     total_bankroll = total_bankroll - bet
@@ -441,27 +460,16 @@ def make_nn_predictions(filename, tournament_pickle_file_name, x_scaled_no_dupli
                         total_winnings = total_winnings + (bet * odds_int[i])
                         total_bankroll = total_bankroll + (bet * odds_int[i])
                         correct = correct + 1
-                        print("The amount that we won is {}".format((bet * odds_int[i])))
+                        f.write("The amount that we won is {}\n".format((bet * odds_int[i])))
                     else:
-                        print("The amount that we lost is {}".format((bet)))
-
-                print("Total bankroll after last match {}".format(total_bankroll))
-                print("Total winnings after last match {}\n".format(total_winnings))
-
+                        f.write("The amount that we lost is {}\n".format((bet)))
+                    bankroll_list.append(total_bankroll)
+                    f.write("Total bankroll after last match {}\n".format(total_bankroll))
+                f.write("Total winnings after last match {}\n".format(total_winnings))
 
             # Write the results to a text file
-            f.write("Our Prediction and result" + "\n")
-            f.write(match_analysis + "\n" + "\n")
 
-            f.write("INITIAL bookmaker odds and probabilities:" + "\n")
-
-            f.write("FINAL bookmaker odds and probabilities:" + "\n")
-            f.write(bookmaker_odds + "\n")
-            f.write(bookmaker_probabilities + "\n" + "\n")
-
-            f.write("MODEL odds and probabilities:" + "\n")
-            f.write(our_probabilities + "\n")
-            f.write(our_decimal_odds + "\n")
+            # f.write(our_decimal_odds + "\n")
 
             f.write(odds_chosen + "\n")
 
@@ -470,9 +478,24 @@ def make_nn_predictions(filename, tournament_pickle_file_name, x_scaled_no_dupli
         f.write("Our final bankroll is : {}\n".format(total_bankroll))
 
         f.write("Total Winnings: {}\n".format(total_winnings))
-        ROI = (total_bankroll - initial_bankroll) / initial_bankroll
+        ROI = float(total_bankroll - initial_bankroll) / total_amount_of_bet
         f.write("Our ROI for {} was: {}.\n".format(tournament_pickle_file_name, ROI))
         f.write("Accuracy using Kelly strategy is {}.\n".format(correct / count))
+
+        print("Our final bankroll is : {}\n".format(total_bankroll))
+        print("Total Winnings: {}\n".format(total_winnings))
+        print("Accuracy using Kelly strategy is {}.\n".format(correct / count))
+        f.write("Number of times when we did bet on our prediction is {}\n".format(counter))
+        f.write("Out of these, {} were correct.".format(counter_2))
+
+        plt.figure()
+        plt.plot(bankroll_list)
+        plt.title('Our Bankroll in Antipolis Challenger 2019')
+        plt.xlabel('Match Number')
+        plt.ylabel('Current Bankroll')
+        plt.show()
+
+
     else:
 
         kelly_uncertainty_dict = {match: 1 - (float(uncertainty) / max(list(match_uncertainty_dict.values()))) for
@@ -489,7 +512,6 @@ def make_nn_predictions(filename, tournament_pickle_file_name, x_scaled_no_dupli
             match = match_to_odds_list[i][0]  # can do this because everything is ordered
             odds = match_to_odds_dictionary[tuple(match)]
             uncertainty = match_uncertainty_dict[tuple(match)]
-
 
             # Convert American to decimal odd if necessary:
             if abs(float(odds[0])) > 20:
@@ -534,7 +556,7 @@ def make_nn_predictions(filename, tournament_pickle_file_name, x_scaled_no_dupli
                     total_winnings = total_winnings - bet
 
                     count = count + 1
-                   # if result == abs(i - 1):
+                    # if result == abs(i - 1):
                     total_winnings = total_winnings + (bet * odds_int[i])
                     total_bankroll = total_bankroll + (bet * odds_int[i])
                     correct = correct + 1
@@ -544,10 +566,6 @@ def make_nn_predictions(filename, tournament_pickle_file_name, x_scaled_no_dupli
 
                 print("Total bankroll after last match {}".format(total_bankroll))
                 print("Total winnings after last match {}\n".format(total_winnings))
-
-
-
-
 
             # For each match use above variables to write the analysis below.
             f.write("MATCH NUMBER {}. Uncertainty: {}\n".format(i, uncertainty))
@@ -585,7 +603,7 @@ def make_nn_predictions(filename, tournament_pickle_file_name, x_scaled_no_dupli
             f.write(our_probabilities + "\n" + "\n")
             f.write(our_decimal_odds + "\n" + "\n")
 
-    return ROI
+    return [total_amount_of_bet, total_winnings, ROI]
 
 
 class NeuralNetModel(object):
@@ -606,8 +624,6 @@ class NeuralNetModel(object):
         # print(self.y_train.shape)
 
         else:
-            # print(dataset_name.shape)
-            # print(labelset_name.shape)
 
             self.x_train, self.y_train, self.x_test, self.y_test, self.x_val, self.y_val = prepare_train_validation_and_test_sets(
                 dataset_name, labelset_name, dev_set_size)
@@ -648,22 +664,35 @@ class NeuralNetModel(object):
         # optimizer = optim.Adagrad(model.parameters(), lr=0.007)  # better alternative for threshold = 0.1
         # optimizer = optim.Adagrad(model.parameters(), lr=0.005)  # better alternative for threshold = 0.2  and 0.4
         optimizer = optim.Adagrad(model.parameters(),
-                                  lr=0.003)  # better alternative for threshold = 0.4 and batchsize = 128
+                                  lr=0.001)  # better alternative for threshold = 0.4 and batchsize = 128
         # optimizer = optim.Adagrad(model.parameters(),
         #                      lr=0.003)  # better alternative for threshold = 0.4 and batchsize = 128
         # optimizer = optim.Adam(model.parameters(), lr=0.00005) # better alternative for threshold = 0.4 and batchsize = 128
 
         criterion = torch.nn.CrossEntropyLoss()
-
-        callbacks = [  # torchsample.callbacks.CyclicLR(step_size=500,base_lr = 0.001,max_lr = 0.01),
+        # torchsample.callbacks.EarlyStopping(schedule=self.early_stopping_schedule,
+        #                                   monitor='val_loss',  # monitor loss
+        #                                  min_delta=1e-5,
+        #                                 patience=10)
+        callbacks = [
+            # torchsample.callbacks.CyclicLR(step_size=500,base_lr = 0.001,max_lr = 0.01),
             torchsample.callbacks.EarlyStopping(schedule=self.early_stopping_schedule,
                                                 monitor='val_loss',  # monitor loss
                                                 min_delta=1e-5,
                                                 patience=80),
             torchsample.callbacks.ModelCheckpoint(directory='~aysekozlu/PyCharmProjects/TennisModel',
                                                   monitor='val_loss', save_best_only=True, verbose=1)]
+
         # torchsample.callbacks.CyclicLR(self.early_stopping_schedule)]
         """
+          torchsample.callbacks.ReduceLROnPlateau(schedule=self.early_stopping_schedule
+                                                    , monitor='val_loss',
+                                                    factor=0.7,
+                                                    patience=10,
+                                                    cooldown=3,
+                                                    epsilon=0.0001,
+                                                    min_lr=1e-6,
+                                                    verbose=1)
         
         torchsample.callbacks.EarlyStopping(schedule = self.early_stopping_schedule,
                                                          monitor='val_loss',  # monitor loss
@@ -692,8 +721,9 @@ class NeuralNetModel(object):
         trainer.compile(loss=criterion,
                         optimizer=optimizer,
                         metrics=metrics)
+
         trainer.set_callbacks(callbacks)
-        print(batch_size)
+
         trainer.fit(self.x_train, self.y_train,
                     val_data=(self.x_val, self.y_val),
                     num_epoch=500,
@@ -730,8 +760,6 @@ class NeuralNetModel(object):
         plt.xlabel('Number of Epoch')
         plt.show()
 
-
-# NN = NeuralNetModel("data_v12_short.txt", "label_v12_short.txt", 128, 0.5)
 
 """
  optimizer = optim.SGD(model.parameters(), lr=0.1, momentum=0.55)
