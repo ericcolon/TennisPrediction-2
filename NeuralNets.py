@@ -13,6 +13,7 @@ import torchsample.callbacks
 import torchsample.metrics
 import math
 from torch.autograd import Variable
+from sklearn.metrics import log_loss
 
 
 def american_to_decimal(american_odd):
@@ -21,6 +22,14 @@ def american_to_decimal(american_odd):
     else:
         american_odd = float(abs(100 / american_odd)) + 1
     return american_odd
+
+
+def decimal_to_american(decimal_odds):
+    if int(decimal_odds) > 2.0:
+        decimal_odds = (float(decimal_odds) - 1) * 100
+    else:
+        decimal_odds = -100 / (float(decimal_odds) - 1)
+    return decimal_odds
 
 
 # I Overwrite this class from torchsample. The one at torch sample does not work for multi class outputs.
@@ -193,11 +202,10 @@ def make_nn_predictions(filename, tournament_pickle_file_name, x_scaled_no_dupli
     total_winnings = 0
     count = 0
     correct = 0
-    total_bankroll = 100
+    total_bankroll = 460
     initial_bankroll = total_bankroll
     total_amount_of_bet = 0
-    tournament_name = "testing1.txt"
-
+    tournament_name = "barcelona23april.txt"
     counter = 0
     counter_2 = 0
     bankroll_list = []
@@ -212,8 +220,6 @@ def make_nn_predictions(filename, tournament_pickle_file_name, x_scaled_no_dupli
     match_to_odds_list = list(match_to_odds_dictionary.items())  # get list of matches
 
     # Load the model
-    # print(torch.from_numpy(x_scaled_no_duplicates).shape)
-    # print(torch.from_numpy(features_from_prediction_final).shape)
 
     linear_clf = Net(15, 128, 2)
     linear_clf.load_state_dict(torch.load(filename))  # 'ckpt.pth02.tar'
@@ -221,12 +227,13 @@ def make_nn_predictions(filename, tournament_pickle_file_name, x_scaled_no_dupli
     # Write training and test accuracy to text file
     y_pred, y_test = resize_prediction_arrays(
         linear_clf(Variable(torch.from_numpy(x_scaled_no_duplicates).float())), y_no_duplicates)
-    print("Training accuracy {}\n".format(float(np.count_nonzero(y_pred == y_test)) / float(len(y_test))))
+    print("Training Set Accuracy {}\n".format(float(np.count_nonzero(y_pred == y_test)) / float(len(y_test))))
     calculate_roc_score(y_test, y_pred, 'train')
 
     f.write(tournament_name + '\n')
     f.write("Filename is: {}\n".format(filename))
     f.write("Training accuracy {}\n".format(float(np.count_nonzero(y_pred == y_test)) / float(len(y_test))))
+    f.write("Training accuracy ROC SCORE {}\n".format(calculate_roc_score(y_test, y_pred, 'train')))
 
     # If we have results + opening odds + final odds
     if scraping_mode == 1:
@@ -235,7 +242,7 @@ def make_nn_predictions(filename, tournament_pickle_file_name, x_scaled_no_dupli
 
         print("Prediction accuracy {}".format(float(np.count_nonzero(y_pred == y_test)) / float(len(y_test))))
         f.write("Prediction accuracy {}\n".format(float(np.count_nonzero(y_pred == y_test)) / float(len(y_test))))
-        calculate_roc_score(y_test, y_pred, 'test')
+        f.write("Prediction ROC SCORE accuracy {}\n".format(calculate_roc_score(y_test, y_pred, 'test')))
         for i, (feature, result) in enumerate(zip(features_from_prediction_final, final_results)):
 
             class_predictions = linear_clf(Variable(torch.from_numpy(feature).float()))
@@ -344,7 +351,8 @@ def make_nn_predictions(filename, tournament_pickle_file_name, x_scaled_no_dupli
 
         print("Prediction accuracy {}".format(float(np.count_nonzero(y_pred == y_test)) / float(len(y_test))))
         f.write("Prediction accuracy {}\n".format(float(np.count_nonzero(y_pred == y_test)) / float(len(y_test))))
-        calculate_roc_score(y_test, y_pred, 'test')
+        f.write("Prediction ROC SCORE {}\n".format(calculate_roc_score(y_test, y_pred, 'test')))
+        print("Prediction ROC SCORE {}\n".format(calculate_roc_score(y_test, y_pred, 'test')))
 
         kelly_uncertainty_dict = {match: 1 - (float(uncertainty) / max(list(match_uncertainty_dict.values()))) for
                                   match, uncertainty in match_uncertainty_dict.items()}
@@ -497,9 +505,12 @@ def make_nn_predictions(filename, tournament_pickle_file_name, x_scaled_no_dupli
 
 
     else:
-
+        # match_uncertainty_dict[tuple([0, 0])] = 0.1
         kelly_uncertainty_dict = {match: 1 - (float(uncertainty) / max(list(match_uncertainty_dict.values()))) for
                                   match, uncertainty in match_uncertainty_dict.items()}
+        # del kelly_uncertainty_dict[tuple([0, 0])]
+        # del match_uncertainty_dict[tuple([0, 0])]
+
         for i, (feature, odd) in enumerate(zip(features_from_prediction_final, match_to_odds_list)):
             class_predictions = linear_clf(Variable(torch.from_numpy(feature).float()))
 
@@ -528,51 +539,9 @@ def make_nn_predictions(filename, tournament_pickle_file_name, x_scaled_no_dupli
             p_int = list(map(float, prediction_probability))
             q_int = [float(1 - prob) for prob in p_int]
             kelly = [((p_int[i] * (odds_int[i] - 1)) - q_int[i]) / (odds_int[i] - 1) for i in range(len(odds_int))]
-            print("Remaining Bankroll is {}".format(total_bankroll))
-            print("Current total winnings is {}".format(total_winnings))
-
-            kelly_confidence_value = kelly_uncertainty_dict[tuple(match)]
-            print("Kelly results are {}".format(kelly))
-            print("Our Current Kelly Confidence Value for this Match is {}".format(kelly_confidence_value))
-            odds_chosen = ""
-            for i in range(len(kelly)):
-                if kelly[i] < 0:
-                    continue
-                else:
-                    print("Current Kelly {}".format(kelly[i]))
-                    # print("The odds {}".format(float(odds_int[i])))
-                    odds_chosen = "The odds we chose to bet was {}".format(float(odds_int[i]))
-                    print(odds_chosen)
-
-                    # TODO TRY USING OUR PREDICTION AS A FACTOR IN KELLY CONFIDENCE VALUE
-
-                    bet = kelly[i] * total_bankroll * kelly_confidence_value
-                    total_amount_of_bet = total_amount_of_bet + bet
-                    print(
-                        "The bet we are putting, which is calculated as {} * {} * {} ,is: {}".format(
-                            kelly[i], total_bankroll, kelly_confidence_value, bet))
-
-                    total_bankroll = total_bankroll - bet
-                    total_winnings = total_winnings - bet
-
-                    count = count + 1
-                    # if result == abs(i - 1):
-                    total_winnings = total_winnings + (bet * odds_int[i])
-                    total_bankroll = total_bankroll + (bet * odds_int[i])
-                    correct = correct + 1
-                    print("The amount that we won is {}".format((bet * odds_int[i])))
-
-                    print("The amount that we lost is {}".format((bet)))
-
-                print("Total bankroll after last match {}".format(total_bankroll))
-                print("Total winnings after last match {}\n".format(total_winnings))
 
             # For each match use above variables to write the analysis below.
-            f.write("MATCH NUMBER {}. Uncertainty: {}\n".format(i, uncertainty))
-            if (uncertainty < 0.2):
-                f.write("This uncertainty means the quality of match features is GOOD.\n".format(i, uncertainty))
-            else:
-                f.write("This uncertainty means the quality of match features is NOT GOOD.\n".format(i, uncertainty))
+            f.write("\nMATCH NUMBER {}. Uncertainty: {}\n".format(i, uncertainty))
 
             match_analysis = "Prediction for match {} - {} is {}.".format(player1, player2, prediction)
 
@@ -598,10 +567,45 @@ def make_nn_predictions(filename, tournament_pickle_file_name, x_scaled_no_dupli
             f.write(match_analysis + "\n" + "\n")
             f.write("Initial bookmaker odds and probabilities:" + "\n")
             f.write(final_bookmaker_odds + "\n")
-            f.write(final_bookmaker_probabilities + "\n" + "\n")
+            #            f.write(final_bookmaker_probabilities + "\n" + "\n")
             f.write("MODEL odds and probabilities:" + "\n")
             f.write(our_probabilities + "\n" + "\n")
-            f.write(our_decimal_odds + "\n" + "\n")
+            #            f.write(our_decimal_odds + "\n" + "\n")
+
+            print("Remaining Bankroll is {}".format(total_bankroll))
+            print("Current total winnings is {}".format(total_winnings))
+
+            kelly_confidence_value = kelly_uncertainty_dict[tuple(match)]
+            f.write("Kelly results are {}\n".format(kelly))
+            f.write("Our Current Kelly Confidence Value for this Match is {}\n".format(kelly_confidence_value))
+
+            for i in range(len(kelly)):
+                if kelly[i] < 0:
+                    continue
+                else:
+                    f.write("Current Kelly {}\n".format(kelly[i]))
+                    # print("The odds {}".format(float(odds_int[i])))
+                    odds_chosen = "The odds we chose to bet was {}".format(float(odds_int[i]))
+                    f.write(odds_chosen + "\n")
+
+                    # TODO TRY USING OUR PREDICTION AS A FACTOR IN KELLY CONFIDENCE VALUE
+
+                    bet = kelly[i] * total_bankroll * kelly_confidence_value
+                    total_amount_of_bet = total_amount_of_bet + bet
+                    f.write(
+                        "The bet we are putting, which is calculated as {} * {} * {} ,is: {}\n".format(
+                            kelly[i], total_bankroll, kelly_confidence_value, bet))
+
+                    #                    total_bankroll = total_bankroll - bet
+                    # total_winnings = total_winnings - bet
+
+                    count = count + 1
+                    # if result == abs(i - 1):
+
+                    correct = correct + 1
+
+                print("Total bankroll after last match {}".format(total_bankroll))
+                print("Total winnings after last match {}\n".format(total_winnings))
 
     return [total_amount_of_bet, total_winnings, ROI]
 
@@ -654,17 +658,18 @@ class NeuralNetModel(object):
         self.epochs.append(epoch)
 
     def train_nn_net_with_torchsample(self, feature_size, batch_size):
+
         model = Net(feature_size, 128, 2)
         # lr=0.1, momentum=0.55
         # optimizer = optim.SGD(model.parameters(), lr=0.008, momentum=0.8, nesterov=True)
         # optimizer = optim.Adagrad(model.parameters(), lr=0.02)
+        # optimizer = optim.Adagrad(model.parameters(), lr=0.02)
         # optimizer = optim.Adam(model.parameters(), lr=0.00005) # good alternative for threshold = 0.1
         # optimizer = optim.Adam(model.parameters(), lr=0.00015) # better alternative for threshold = 0.15
         # optimizer = optim.Adagrad(model.parameters(), lr=0.0025)  # better alternative for threshold = 0.15
-        # optimizer = optim.Adagrad(model.parameters(), lr=0.007)  # better alternative for threshold = 0.1
+        #optimizer = optim.Adagrad(model.parameters(), lr=0.007)  # better alternative for threshold = 0.1
         # optimizer = optim.Adagrad(model.parameters(), lr=0.005)  # better alternative for threshold = 0.2  and 0.4
-        optimizer = optim.Adagrad(model.parameters(),
-                                  lr=0.001)  # better alternative for threshold = 0.4 and batchsize = 128
+        optimizer = optim.Adagrad(model.parameters(),lr=0.001)  # better alternative for threshold = 0.4 and batchsize = 128
         # optimizer = optim.Adagrad(model.parameters(),
         #                      lr=0.003)  # better alternative for threshold = 0.4 and batchsize = 128
         # optimizer = optim.Adam(model.parameters(), lr=0.00005) # better alternative for threshold = 0.4 and batchsize = 128
@@ -734,13 +739,14 @@ class NeuralNetModel(object):
 
         # Calculate training accuracy
         y_pred_train_np, y_train_np = resize_label_arrays(trainer.predict(self.x_train), self.y_train)
-        print("Training accuracy {}".format(
+        print("Training accuracy SCORE {}".format(
             float(np.count_nonzero(y_pred_train_np == y_train_np)) / float(len(y_train_np))))
         calculate_roc_score(y_train_np, y_pred_train_np, 'train')
         # Calculate testing accuracy
         y_pred_test_np, y_test_np = resize_label_arrays(trainer.predict(self.x_test), self.y_test)
         print(
-            "Testing accuracy {}".format(float(np.count_nonzero(y_pred_test_np == y_test_np)) / float(len(y_test_np))))
+            "Testing accuracy SCORE {}".format(
+                float(np.count_nonzero(y_pred_test_np == y_test_np)) / float(len(y_test_np))))
         calculate_roc_score(y_test_np, y_pred_test_np, 'test')
 
         plt.figure()
