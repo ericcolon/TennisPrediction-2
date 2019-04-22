@@ -4,10 +4,11 @@ from sqlalchemy import create_engine
 import feather
 from DataExtraction import *
 
+
 # from DataExtraction_WTA import * # For creating our advanced stats for ATP Matches
 
-def convert_dataframe_into_rdata(df, name):
-    path = name
+def convert_dataframe_into_rdata(df, pathname):
+    path = pathname
     feather.write_dataframe(df, path)
 
 
@@ -341,7 +342,9 @@ class FeatureExtraction(object):
     # Finds the year in which each match was played and adds it to database as a year column
     def add_match_year(self, table):
 
-        # These three lines created a bug. Taking index instead of tournament id_t is a wrong assumption since there is no 1-1 relationship
+        # These three lines created a bug. Taking index instead of tournament id_t is
+        # a wrong assumption since there is no 1-1 relationship
+
         # self.tournaments["DATE_T"] = pd.to_datetime(self.tournaments["DATE_T"])
         # tours = self.unfiltered_tournaments["DATE_T"].dt.year.to_frame()
         # tours.reset_index(level=0, inplace=True)
@@ -356,7 +359,7 @@ class FeatureExtraction(object):
         print("stop")
         table['year'] = ""
         for i in table.index:
-            print("We are year of the match at index {}".format(i))
+            print("We are calculating year of the match at index {}".format(i))
             tour_id = table.at[i, "ID_T"]
             tournament = tours.loc[tours["ID_T"] == tour_id]
 
@@ -374,12 +377,11 @@ class FeatureExtraction(object):
         return final_dataset
 
     def extract_players(self):
-
         self.players['NAME_P'] = [word.replace('-', ' ').lower().strip() for word in self.players['NAME_P']]
-        for name in self.players['NAME_P']:  # Making sure doubles, player with dashes in their name not in our database
-            assert '-' not in name and '/' not in name
-
-        df2sqlite_v2(self.players, "atp_players")
+        for playerName in self.players[
+            'NAME_P']:  # Making sure doubles,player with dashes in their name not in database
+            assert '-' not in playerName and '/' not in playerName
+        df2sqlite_v2(self.players, "atp_playersv2")
         print("Player sqlite database successfully created")
 
 
@@ -562,8 +564,9 @@ def create_surface_matrix(self):
 
 # RUN THIS CODE  
 # Code to create the Sqlite stats database with all the required information to create features
+feature_extraction = FeatureExtraction("db3.sqlite")
 
-
+""" 
 feature_extraction = FeatureExtraction("db3.sqlite")
 new_stats = feature_extraction.create_advanced_features()
 new_stats_v1 = feature_extraction.create_set_and_game_stats(new_stats)
@@ -579,16 +582,13 @@ print(new_stats_v4.info())
 # Please specify new database name
 name = 'updated_stats_v6'
 df2sqlite_v2(new_stats_v4, name)
-
-"""
-feature_extraction.extract_players()
 """
 # RUN THIS CODE to extract player sqlite3 database
 
-""" feature_extraction.extract_players()"""
+feature_extraction.extract_players()
 
-# This code is to create and calculate a surface matrix
 """ 
+# This code is to create and calculate a surface matrix
 
 means_and_stds = feature_extraction.create_surface_matrix()
 print(means_and_stds)
