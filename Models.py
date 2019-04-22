@@ -109,6 +109,8 @@ def read_oddsportal_data(data_file, players_file, scraping_mode, odds_length, p1
             p2 = odds[p2_index]
             print(p1)
             print(p2)
+            if p1 == 'jaume munar':
+                p1 = "jaume antoni munar clar"
             p1_id = players_file[players_file['NAME_P'] == p1]
             p2_id = players_file[players_file['NAME_P'] == p2]
             print(p1_id, p2_id)
